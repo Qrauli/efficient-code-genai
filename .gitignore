@@ -1,0 +1,67 @@
+# Environment and configuration
+.env
+venv/
+env/
+.venv/
+ENV/
+*.env.*
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Local project files and directories
+results/
+vector_db/
+.vscode/
+.idea/
+*.ipynb_checkpoints/
+
+# Jupyter notebook
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# API keys and sensitive data
+**/api_keys.txt
+**/credentials.json
+**/*.pem
+
+# Model files and large data
+*.bin
+*.h5
+*.onnx
+*.pb
+*.pt
+*.pth
+*.model
+
+# Logs and outputs
+logs/
+*.log
+output/
+*.out
+*.swp
+
+# Data files that may be large
+data/code_corpus/*
+!data/code_corpus/.gitkeep
+data/benchmark_problems/*.json
+data/benchmark_problems/*.txt
+!data/benchmark_problems/.gitkeep
+
+# OS specific files
+.DS_Store
+Thumbs.db
+*.lnk
