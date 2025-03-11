@@ -13,7 +13,7 @@ Writing efficient code is challenging, especially for data science tasks process
 The system employs a multi-agent architecture with specialized components:
 
 ### Agents
-- **[CodeGenerator](agents/code_generator.py)**: Generates initial code based on problem descriptions, leveraging retrieval for relevant examples
+- **[CodeGenerator](agents/code_generator.py)**: Generates initial code based on problem descriptions
 - **[CodeTester](agents/code_tester.py)**: Creates test cases and verifies code correctness
 - **[CodeOptimizer](agents/code_optimizer.py)**: Improves code efficiency using profiling data and fixes correctness issues
 - **[Orchestrator](agents/orchestrator.py)**: Coordinates the workflow between agents in iterative refinement cycles
