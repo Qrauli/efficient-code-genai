@@ -47,6 +47,51 @@ class CodeTester(BaseAgent):
             }
         }
         
+    def correct_code(self, code, problem_description, test_results):
+        """Fix code to make it pass all tests"""
+        # Extract failing tests and their error messages
+        failing_tests = [tr.get("error", "") for tr in test_results if not tr.get("success", False)]
+        template = """
+        Problem Description: {problem_description}
+        
+        Current Code:
+        ```python
+        {code}
+        ```
+        
+        Failing Tests/Errors:
+        {failing_tests}
+        
+        Fix the code to make all tests pass. Focus only on correctness for now, not optimization.
+        The goal is to make the code work correctly according to the requirements.
+        
+        Return your answer in the following format:
+        
+        Your response should ONLY contain the python code and nothing else.
+        ALWAYS wrap your code in ```python and ``` markers.
+        """
+        
+        parser = self._extract_code_parser()
+        
+        chain = self._create_chain(
+            template=template       
+        ) 
+        result = chain.invoke({
+            "problem_description": problem_description,
+            "code": code,
+            "failing_tests": failing_tests
+        }
+        )
+        
+        return {
+            "original_code": code,
+            "corrected_code": result['code'],
+            "metadata": {
+                "agent": self.name,
+                "action": "code_correction"
+            }
+        }
+        
     def generate_tests(self, problem_description):
         """Generate test cases based only on problem description (before code generation)"""
         test_cases = self._generate_test_cases_from_description(problem_description)

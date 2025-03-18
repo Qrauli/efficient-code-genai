@@ -136,3 +136,94 @@ def execute_code(code, config, test_input=None):
             os.unlink(input_file_path)
             if stdin:
                 stdin.close()
+
+def profile_with_scalene(code, config, test_input=None):
+    """
+    Profile the given code with Scalene for line-by-line performance metrics
+    
+    Parameters:
+    code (str): Python code to execute
+    config (Config): Configuration object
+    test_input (str, optional): Input data for testing
+    
+    Returns:
+    dict: Profiling results including line-by-line CPU time, memory usage, and allocation
+    """
+    # Create a temporary file for the code
+    with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp_file:
+        temp_file_path = temp_file.name
+        temp_file.write(code.encode())
+    
+    # Create a temporary file for output
+    output_json_path = temp_file_path + '.json'
+    
+    try:
+        # Command to execute Scalene with JSON output
+        cmd = [
+            'python3', '-m', 'scalene',
+            '--json', '--outfile', output_json_path,
+            '--cpu', '--memory',
+            temp_file_path
+        ]
+        
+        # Prepare input redirection if needed
+        stdin = None
+        if test_input:
+            with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as input_file:
+                input_file_path = input_file.name
+                input_file.write(test_input.encode())
+                stdin = open(input_file_path, 'r')
+        
+        # Execute Scalene profiler
+        process = subprocess.Popen(
+            cmd,
+            stdin=stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        
+        # Wait for the process to complete with timeout
+        try:
+            stdout, stderr = process.communicate(timeout=config.TIMEOUT_SECONDS)
+            output = stdout.decode()
+            error = stderr.decode()
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+            output = stdout.decode()
+            error = stderr.decode() + "\nProfiling timed out"
+        
+        # Load the JSON profile if it exists
+        profile_data = {}
+        if os.path.exists(output_json_path):
+            with open(output_json_path, 'r') as f:
+                import json
+                try:
+                    profile_data = json.load(f)
+                except json.JSONDecodeError:
+                    profile_data = {"error": "Failed to parse Scalene output JSON"}
+        
+        return {
+            "profile_data": profile_data,
+            "output": output,
+            "error": error,
+            "success": process.returncode == 0
+        }
+    
+    except Exception as e:
+        return {
+            "profile_data": {},
+            "output": "",
+            "error": str(e) + "\n" + traceback.format_exc(),
+            "success": False
+        }
+    finally:
+        # Clean up temporary files
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        if os.path.exists(output_json_path):
+            os.unlink(output_json_path)
+        if test_input and 'input_file_path' in locals() and os.path.exists(input_file_path):
+            os.unlink(input_file_path)
+            if stdin:
+                stdin.close()

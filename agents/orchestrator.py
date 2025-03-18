@@ -66,15 +66,13 @@ class Orchestrator:
             
             # If code doesn't pass all tests, fix correctness issues first
             if not correctness_result["all_tests_passed"]:
-                optimizer_input = {
-                    "code": current_code,
-                    "problem_description": problem_description,
-                    "test_results": correctness_result["test_results"],
-                    "phase": "correctness"
-                }
-                optimizer_result = self.code_optimizer.process(optimizer_input)
-                results_history.append({"step": f"refinement_{iterations}_fix", "result": optimizer_result})
-                current_code = optimizer_result["optimized_code"]
+                tester_result = self.code_tester.correct_code(
+                    current_code,
+                    problem_description,
+                    correctness_result["test_results"]
+                )
+                results_history.append({"step": f"refinement_{iterations}_fix", "result": tester_result})
+                current_code = tester_result["corrected_code"]
                 
                 # Skip performance optimization for this iteration, as we need to verify correctness first
                 iterations += 1
@@ -131,7 +129,7 @@ class Orchestrator:
             }
         }
     
-    def _evaluate_correctness(self, code, test_cases, problem_description):
+    def _evaluate_correctness(self, code, test_cases):
         """Run tests to check code correctness"""
         all_tests_passed = True
         updated_test_results = []
@@ -187,8 +185,8 @@ except Exception as e:
         }
     
     def _run_profiling(self, code, test_cases):
-        """Run detailed line-by-line profiling"""
-        profiling_results = {"line_profiling": [], "memory_profiling": [], "overall_metrics": {}}
+        """Run detailed line-by-line profiling using Scalene"""
+        profiling_results = {"line_profiling": [], "overall_metrics": {}}
         
         # Create a temporary file for the code
         with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp_file:
@@ -196,77 +194,51 @@ except Exception as e:
             temp_file.write(code.encode())
         
         try:
-            # Line profiling
+            # Run Scalene profiling for each test case
+            from utils.code_execution import profile_with_scalene
+            
             for test_case in test_cases:
                 function_call = test_case.get("function_call", "")
                 if not function_call:
                     continue
                 
-                # Create a wrapper script for line_profiler
+                # Create a wrapper script that includes the function call
                 wrapper_code = f"""
-import line_profiler
-import sys
+{code}
 
-# Load the code with functions
-with open('{temp_file_path}', 'r') as f:
-    code = f.read()
-namespace = dict()
-exec(code, namespace)
-
-# Extract main function name from the function call
-func_name = '{function_call}'.split('(')[0].strip()
-func = namespace.get(func_name)
-
-# Set up profiler
-profile = line_profiler.LineProfiler(func)
-profile.runcall({function_call})
-profile.print_stats()
-                """
+if __name__ == "__main__":
+    # Execute the test case
+    {function_call}
+"""
                 
-                with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as prof_file:
-                    prof_file_path = prof_file.name
-                    prof_file.write(wrapper_code.encode())
+                with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as wrapper_file:
+                    wrapper_path = wrapper_file.name
+                    wrapper_file.write(wrapper_code.encode())
                 
-                # Run line profiler
-                try:
-                    result = subprocess.run(
-                        [sys.executable, prof_file_path], 
-                        capture_output=True, 
-                        text=True,
-                        timeout=self.config.TIMEOUT_SECONDS
-                    )
-                    profiling_results["line_profiling"].append({
-                        "test_case": test_case["name"],
-                        "profile_output": result.stdout
-                    })
-                except Exception as e:
-                    profiling_results["line_profiling"].append({
-                        "test_case": test_case["name"],
-                        "error": str(e)
-                    })
+                # Run profiling on the wrapper
+                scalene_result = profile_with_scalene(wrapper_code, self.config)
                 
-                # Clean up wrapper
-                os.unlink(prof_file_path)
-            
-            # Memory profiling (using memory-profiler if available)
-            # Similar approach as line profiling, but with memory_profiler
-            
-            # Overall execution metrics (using our existing code_execution utility)
-            for test_case in test_cases:
-                function_call = test_case.get("function_call", "")
-                test_wrapper = f"""
-                # First execute the original code to define the function
-            {code.replace(chr(10), chr(10) + '    ')}
+                # Extract line profiling data
+                profiling_results["line_profiling"].append({
+                    "test_case": test_case["name"],
+                    "profile_data": scalene_result["profile_data"],
+                    "success": scalene_result["success"]
+                })
                 
-                # Then execute the test call
-                {function_call}
-                """
-                
-                result = execute_code(test_wrapper, self.config)
+                # Also run regular execution for overall metrics
+                from utils.code_execution import execute_code
+                exec_result = execute_code(wrapper_code, self.config)
                 profiling_results["overall_metrics"][test_case["name"]] = {
-                    "execution_time": result["execution_time"],
-                    "memory_usage": result["memory_usage"]
+                    "execution_time": exec_result["execution_time"],
+                    "memory_usage": exec_result["memory_usage"]
                 }
+                
+                # Clean up wrapper file
+                if os.path.exists(wrapper_path):
+                    os.unlink(wrapper_path)
+        
+        except Exception as e:
+            profiling_results["error"] = str(e)
         
         finally:
             # Clean up temporary file
