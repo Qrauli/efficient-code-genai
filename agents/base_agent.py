@@ -71,7 +71,22 @@ class BaseAgent(ABC):
             max_retries=2
         )
 
-
+def _create_dataframe_sample(df):
+    """Create a representative sample of the DataFrame for the prompt"""
+    # Determine sample size - balance between informativeness and prompt size
+    sample_size = min(3, len(df))
+    sample_df = df.head(sample_size)
+    
+    # Format as a pretty printed table
+    formatted_sample = "DataFrame Sample (returned by df.head(sample_size)):\n"
+    formatted_sample += sample_df.to_string()
+    
+    # Add explicit column information with types
+    formatted_sample += "\n\nDataFrame Column Names (MUST USE THESE EXACT NAMES):\n"
+    for col in df.columns:
+        formatted_sample += f"- {col}\n"
+    
+    return formatted_sample
 
 def clean_json_output(text):
     """Remove code block markers from the output before JSON parsing"""

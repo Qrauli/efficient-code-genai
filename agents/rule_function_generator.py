@@ -9,66 +9,58 @@ from utils.code_execution import profile_with_scalene
 class RuleFunctionGenerator(BaseAgent):
     def __init__(self, config):
         system_prompt = """You are an expert code generation agent specialized in creating efficient functions to evaluate rules on pandas DataFrames.
-        Your goal is to generate high-quality, optimiTake a look at my code generation workflow.zed code that evaluates rule satisfaction, calculates metrics like support and confidence,
-        and efficiently identifies satisfying or violating rows. Focus on vectorized operations and pandas-native functions for best performance."""
+        Your goal is to generate high-quality, optimized code that evaluates rule satisfaction, calculates metrics like support and confidence, and efficiently identifies satisfying or violating rows. 
+        Focus on vectorized operations and pandas-native functions for best performance."""
         super().__init__(config, "RuleFunctionGenerator", system_prompt)
     
-    def process(self, rule_description, example_dataframe=None, dataframe_schema=None):
+    def process(self, rule_description, df_sample=None, context=None):
         """Generate a function that evaluates the given rule on a pandas DataFrame
         
         Args:
             rule_description (str): Description of the rule to implement
-            example_dataframe (pd.DataFrame, optional): Example DataFrame for context
-            dataframe_schema (dict, optional): Schema description if example_dataframe not provided
+            df_sample (str): DataFrame sample information
+            context (str, optional): Retrieved context information
             
         Returns:
             dict: Generated code and metadata
-        """
-        # Prepare dataframe information for the prompt
-        if example_dataframe is not None:
-            df_info = self._extract_dataframe_info(example_dataframe)
-            # Create a sample representation of the data
-            df_sample = self._create_dataframe_sample(example_dataframe)
-        elif dataframe_schema is not None:
-            df_info = dataframe_schema
-            df_sample = "DataFrame sample not available"
-        else:
-            df_info = "DataFrame schema not provided"
-            df_sample = "DataFrame sample not available"
-            
-        template = """
-        # Rule Description
-        {rule_description}
+        """ 
         
-        # DataFrame Information
-        {df_info}
-        
-        # DataFrame Sample
-        {df_sample}
-        
-        # Task
-        Generate a Python function named `evaluate_rule` that takes a pandas DataFrame as input and evaluates the rule described above.
-        
-        The function should:
-        1. Compute Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
-        2. Compute Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
-        3. Return a tuple containing:
-           - support (float): The calculated support value
-           - confidence (float): The calculated confidence value
-           - row_indexes (set): Either the indexes of violating rows or satisfying rows (but not both)
-           - is_violations (bool): True if row_indexes contains violation indexes, False if it contains satisfying indexes
-        
-        The function should decide which indexes to return based on efficiency - if the confidence is high (≥ 0.9), 
-        return violation indexes as they'll be fewer. Otherwise, return satisfying indexes.
-        
-        Prioritize:
-        - Vectorized operations over loops
-        - Pandas native functions over custom implementations
-        - Memory efficiency for large DataFrames
-        - Clear, readable code with appropriate comments
-        
-        Your response should ONLY contain the Python function wrapped in ```python and ``` markers.
-        """
+        template = f"""
+# Rule Description
+{rule_description}
+
+# DataFrame Sample
+{df_sample}
+
+{context or ""}
+
+# Task
+Generate a Python function named `evaluate_rule` that takes a pandas DataFrame as input and evaluates the rule described above.
+
+- The function should compute:
+       - Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
+         Support = (Number of rows where the entire rule is satisfied) / (Total number of rows in the dataset) 
+       
+       - Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
+         Confidence = (Number of rows where the entire rule is satisfied) / (Number of rows where the body of the rule is satisfied)
+    
+    - The function should return:
+        - `support`: the support value   
+        - `confidence`: the confidence value.
+        - `satisfying_indexes`, `violation_indexes` : presentations of units that satisfy or violate the rule. This presentation should utilize the index of the dataframe to represent rows. 
+
+Prioritize:
+- Vectorized operations over loops
+- Pandas native functions over custom implementations
+- Memory efficiency for large DataFrames
+- Clear, readable code with appropriate comments
+
+IMPORTANT:
+- Your response should ONLY contain the Python function wrapped in ```python and ``` markers.
+- Make sure that your code uses the exact column names specified in the DataFrame sample not the rule description. For example, if a rule mentions 'AreaCode' but the DataFrame sample shows the column as 'AreaCode(String)', you MUST use 'AreaCode(String)' in your code.
+- Note that the code will be used for tables with multiple millions of rows. Ensure that the code is efficient and uses as little memory as possible.
+- Do not assume that the DataFrame sample is exhaustive. Your function should work with any DataFrame that has the same structure.
+"""
         
         parser = self._extract_code_parser()
         chain = self._create_chain(
@@ -77,7 +69,6 @@ class RuleFunctionGenerator(BaseAgent):
         
         result = chain.invoke({
             "rule_description": rule_description,
-            "df_info": df_info,
             "df_sample": df_sample
         })
         
@@ -89,47 +80,9 @@ class RuleFunctionGenerator(BaseAgent):
             }
         }
     
-    def _extract_dataframe_info(self, df):
-        """Extract relevant information from example DataFrame"""
-        info = []
-        
-        # Add shape information
-        info.append(f"DataFrame Shape: {df.shape}")
-        
-        # Add column names and types
-        info.append("Columns:")
-        for col in df.columns:
-            dtype = df[col].dtype
-            sample = str(df[col].iloc[0]) if len(df) > 0 else "N/A"
-            unique_count = df[col].nunique()
-            info.append(f"  - {col} (type: {dtype}, unique values: {unique_count}, sample: {sample})")
-        
-        # Add basic stats for numeric columns
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        if len(numeric_cols) > 0:
-            info.append("Numeric Column Statistics:")
-            for col in numeric_cols[:5]:  # Limit to first 5 to keep prompt size reasonable
-                info.append(f"  - {col}: min={df[col].min()}, max={df[col].max()}, mean={df[col].mean()}")
-        
-        return "\n".join(info)
+
     
-    def _create_dataframe_sample(self, df):
-        """Create a representative sample of the DataFrame for the prompt"""
-        # Determine sample size - balance between informativeness and prompt size
-        sample_size = min(5, len(df))
-        sample_df = df.head(sample_size)
-        
-        # Format as a pretty printed table
-        formatted_sample = "DataFrame Sample (first few rows):\n"
-        formatted_sample += sample_df.to_string()
-        
-        # Also include a code representation for clarity
-        formatted_sample += "\n\nSample as code:\n"
-        formatted_sample += f"df = pd.DataFrame(\n{sample_df.to_dict()}\n)"
-        
-        return formatted_sample
-    
-    def test_function(self, function_code, dataframe, expected_outcomes=None):
+    def test_function(self, function_code, dataframe):
         """Test the function code against a dataframe while also collecting performance metrics"""
         
         import tempfile
@@ -159,15 +112,13 @@ try:
     
     # Extract results
     if isinstance(result, tuple) and len(result) >= 4:
-        support, confidence, row_indexes, is_violations = result
-        row_indexes_count = len(row_indexes) if hasattr(row_indexes, '__len__') else 0
-        
+        support, confidence, satisfying_indexes, violation_indexes = result        
         # Create a proper JSON object and print it using json.dumps
         result_dict = {{
             "support": support,
             "confidence": confidence, 
-            "is_violations": is_violations,
-            "row_indexes_count": row_indexes_count
+            "satisfying_indexes": satisfying_indexes,
+            "violation_indexes": violation_indexes
         }}
         print("FUNCTION_RESULT: " + json.dumps(result_dict))
         success = True

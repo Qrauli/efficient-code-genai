@@ -16,7 +16,7 @@ class Config:
     HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA", "0.5"))  # Weight between sparse and dense retrieval
     
     # Agent Configuration
-    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "7"))
     AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
     
     # Evaluation Configuration
@@ -29,3 +29,30 @@ class Config:
     RESULTS_PATH = os.getenv("RESULTS_PATH", "./results")
     
     GENERATE_ADDITIONAL_TESTS = True  # Whether to generate additional tests when existing ones are provided
+    
+    # Retrieval settings
+    ENABLE_RETRIEVAL = False
+    RETRIEVAL_STORAGE_PATH = "data/retrieval_store"
+    RETRIEVAL_TOP_K = 5
+    
+    # Default retrieval sources
+    DEFAULT_RETRIEVAL_SOURCES = [
+        {
+            "name": "pandas_documentation",
+            "type": "web",
+            "path": "https://pandas.pydata.org/docs/reference/frame.html",
+            "description": "Official pandas DataFrame documentation"
+        },
+        {
+            "name": "pandas_optimization_guide",
+            "type": "web",
+            "path": "https://pandas.pydata.org/pandas-docs/stable/user_guide/enhancingperf.html",
+            "description": "Pandas performance optimization guide"
+        },
+        {
+            "name": "pandas_cookbook",
+            "type": "web",
+            "path": "https://pandas.pydata.org/pandas-docs/stable/user_guide/cookbook.html",
+            "description": "Pandas cookbook with efficient patterns"
+        }
+    ]

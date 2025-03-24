@@ -1,13 +1,40 @@
+from .base_agent import _create_dataframe_sample
 from .orchestrator import Orchestrator
 from .rule_function_generator import RuleFunctionGenerator
-from .code_optimizer import CodeOptimizer
+from .rule_code_optimizer import RuleCodeOptimizer
+from .rule_code_tester import RuleCodeTester
+from .rule_code_reviewer import RuleCodeReviewer
 import pandas as pd
 
+# Add imports
+from utils.context_retrieval import ContextRetriever, RetrievalSource
+
 class RuleOrchestrator(Orchestrator):
-    def __init__(self, config):
+    def __init__(self, config, use_retrieval=None):
         super().__init__(config)
         self.rule_function_generator = RuleFunctionGenerator(config)
-        self.code_optimizer = CodeOptimizer(config)
+        self.code_optimizer = RuleCodeOptimizer(config)
+        self.code_tester = RuleCodeTester(config)
+        self.code_reviewer = RuleCodeReviewer(config)
+        
+        # Initialize retrieval if enabled
+        self.use_retrieval = use_retrieval if use_retrieval is not None else config.ENABLE_RETRIEVAL
+        self.retriever = None
+        
+        if self.use_retrieval:
+            self._initialize_retriever()
+    
+    def _initialize_retriever(self):
+        """Initialize the context retriever with default sources"""
+        self.retriever = ContextRetriever(self.config)
+        
+        # Add default sources from config
+        for source_config in self.config.DEFAULT_RETRIEVAL_SOURCES:
+            source = RetrievalSource(**source_config)
+            self.retriever.add_source(source)
+            
+        # Initialize the retriever
+        self.retriever.initialize()
     
     def process_rule(self, rule_description, dataframe: pd.DataFrame, sample_size=None):
         """Process a rule description to generate and optimize a function for DataFrame rule evaluation"""
@@ -18,50 +45,104 @@ class RuleOrchestrator(Orchestrator):
         if sample_size and len(dataframe) > sample_size:
             working_df = dataframe.sample(sample_size, random_state=42)
         
-        # Phase 1: Generate initial function
-        generator_result = self.rule_function_generator.process(rule_description, example_dataframe=working_df)
+        # Create dataframe info once for reuse
+        dataframe_info = _create_dataframe_sample(working_df)
+        
+        # Phase 1: Generate initial function - now with retrieval context if enabled
+        generator_context = self._get_relevant_context(
+            query=f"pandas dataframe function to evaluate rule: {rule_description}",
+            source_types=["documentation", "code_snippet"]
+        )
+        
+        generator_result = self.rule_function_generator.process(
+            rule_description, 
+            df_sample=dataframe_info,
+            context=generator_context
+        )
+        
         current_code = generator_result["code"]
         results_history.append({"step": "generation", "result": generator_result})
         
         # Phase 2: Test function execution and collect performance metrics in one step
         test_result = self.rule_function_generator.test_function(current_code, working_df)
-        results_history.append({"step": "initial_testing", "result": test_result})
+        test_log = test_result.copy()
+        # del test_log["profile_data"]
+        results_history.append({"step": "initial_testing", "result": test_log})
         
         # Phase 3: Optimization loop
         iterations = 0
         previous_code = None
-        previous_metrics = None
+        should_continue = True
         
-        while iterations < self.max_iterations:
+        while iterations < self.max_iterations and should_continue:
             # Skip if initial testing failed
             if not test_result.get("success", False):
                 # Attempt to fix the code first
                 corrected_result = self.code_tester.correct_code(
                     code=current_code,
                     problem_description=f"DataFrame rule evaluation function for: {rule_description}",
-                    test_results=[test_result]
+                    test_results=[test_result],
+                    dataframe_info=dataframe_info
                 )
                 results_history.append({"step": f"refinement_{iterations}_correction", "result": corrected_result})
                 
                 # Update code and test again
                 current_code = corrected_result.get("corrected_code", current_code)
                 test_result = self.rule_function_generator.test_function(current_code, working_df)
-                results_history.append({"step": f"refinement_{iterations}_retest", "result": test_result})
+                test_log = test_result.copy()
+                # del test_log["profile_data"]
+                results_history.append({"step": f"refinement_{iterations}_retest", "result": test_log})
                 
                 iterations += 1
                 continue
+            
+            # Add code review step to determine if we should continue optimization
+            review_input = {
+                "code": current_code,
+                "previous_code": previous_code,
+                "problem_description": f"DataFrame rule evaluation function for: {rule_description}",
+                "test_result": test_result,
+                "dataframe_info": dataframe_info
+            }
+            
+            review_result = self.code_reviewer.process(review_input)
+            results_history.append({"step": f"refinement_{iterations}_review", "result": review_result})
+            
+            # Check if we should terminate optimization based on review
+            should_continue = review_result.get("continue_optimization", True)
+            
+            if not should_continue:
+                # Reviewer suggests terminating optimization
+                results_history.append({
+                    "step": f"refinement_{iterations}_termination",
+                    "result": {
+                        "reason": "Reviewer recommended termination",
+                        "optimization_potential": review_result.get("optimization_potential"),
+                        "recommendations": review_result.get("improvement_recommendations")
+                    }
+                })
+                break
+            
+            # Add retrieval of relevant optimization techniques
+            optimization_context = None
+            if self.use_retrieval:
+                # Get specific query based on review feedback
+                optimization_query = f"pandas dataframe optimization techniques for: {rule_description}"
+                if review_result.get("improvement_recommendations", []):
+                    # Use first 2 recommendations to guide retrieval
+                    recommendations = review_result.get("improvement_recommendations", [])[:2]
+                    optimization_query += f" to improve {', '.join(recommendations)}"
                 
-            # Extract current metrics
-            # current_metrics = self._extract_rule_metrics(test_result)
+                optimization_context = self._get_relevant_context(
+                    query=optimization_query,
+                    source_types=["documentation", "code_snippet"]
+                )
             
-            # Check if we should terminate optimization
-            # if self._should_terminate_rule_optimization(previous_code, current_code, previous_metrics, current_metrics):
-            #    break
-            
-            # Perform optimization with profiling information from the test_result
+            # Perform optimization with profiling information and retrieval context
             optimizer_input = {
                 "code": current_code,
                 "problem_description": f"Optimize the DataFrame rule evaluation function for: {rule_description}",
+                "dataframe_info": dataframe_info,
                 "profiling_data": {
                     "overall_metrics": {
                         "test": {
@@ -71,7 +152,9 @@ class RuleOrchestrator(Orchestrator):
                     },
                     "line_profiling": [{"test_case": "rule_evaluation", "profile_data": test_result.get("profile_data", {})}]
                 },
-                "phase": "optimization"
+                "phase": "optimization",
+                "review_feedback": review_result.get("improvement_recommendations", []),
+                "retrieval_context": optimization_context  # Add retrieved context
             }
             
             optimizer_result = self.code_optimizer.process(optimizer_input)
@@ -79,7 +162,6 @@ class RuleOrchestrator(Orchestrator):
             
             # Update and retest the optimized code
             previous_code = current_code
-            # previous_metrics = current_metrics
             current_code = optimizer_result.get("optimized_code", current_code)
             
             # Test the updated code
@@ -99,6 +181,21 @@ class RuleOrchestrator(Orchestrator):
                     break
         
         summary = self._generate_rule_summary(current_code, results_history, final_test_result)
+        
+        # Store the successful code for future retrieval if enabled
+        if self.use_retrieval and final_test_result.get("success", False):
+            metrics = self._extract_rule_metrics(final_test_result)
+            self.retriever.add_generated_code(
+                code=current_code,
+                metadata={
+                    "description": f"Optimized function for rule: {rule_description}",
+                    "tags": ["rule_evaluation", "dataframe", "optimized"],
+                    "execution_time": metrics.get("execution_time"),
+                    "memory_usage": metrics.get("memory_mb"),
+                    "support": metrics.get("support"),
+                    "confidence": metrics.get("confidence")
+                }
+            )
         
         return {
             "code": current_code,
@@ -243,3 +340,41 @@ Performance: {time_improvement:.2f}% execution time improvement, {memory_improve
 Support: {support}
 Confidence: {confidence}
 Returned {'violation' if is_violations else 'satisfying'} indexes: {row_indexes_count} rows"""
+    
+    def _get_relevant_context(self, query, source_types=None, top_k=None):
+        """Get relevant context from the retriever"""
+        if not self.use_retrieval or not self.retriever:
+            return None
+            
+        try:
+            # Convert source_types to source filter if specified
+            filter_sources = None
+            if source_types:
+                # Get all sources of the specified types
+                filter_sources = [
+                    source.name for source in self.retriever.sources 
+                    if source.type in source_types and source.enabled
+                ]
+                
+            # Get relevant context
+            context_results = self.retriever.retrieve(
+                query=query,
+                filter_sources=filter_sources,
+                top_k=top_k
+            )
+            
+            if not context_results:
+                return None
+                
+            # Format context for inclusion in prompts
+            formatted_context = "## Relevant Context\n\n"
+            
+            for i, result in enumerate(context_results):
+                formatted_context += f"### {i+1}. {result['source']} ({result['source_type']})\n"
+                formatted_context += result['content'].strip() + "\n\n"
+            
+            return formatted_context
+        except Exception as e:
+            # Log error but don't stop the process
+            print(f"Error retrieving context: {str(e)}")
+            return None

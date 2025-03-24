@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import sys
 import os
-
+from langchain.globals import set_debug, set_verbose
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -11,7 +11,7 @@ from config import Config
 
 def main():
     """Example usage of the RuleOrchestrator for generating rule evaluation functions"""
-
+    # set_debug(True)
     # Load data from CSV
     df = pd.read_csv("Tax.csv")
         
@@ -25,7 +25,7 @@ def main():
     """
     
     # Process the rule (using a sample for initial development)
-    result = orchestrator.process_rule(rule_description, df, sample_size=2000)
+    result = orchestrator.process_rule(rule_description, df, sample_size=100000)
     
     # Print results
     print("\nRule Description:")
@@ -38,8 +38,6 @@ def main():
     final_metrics = result.get("final_metrics", {})
     print(f"Support: {final_metrics.get('support')}")
     print(f"Confidence: {final_metrics.get('confidence')}")
-    print(f"Is returning violations: {result.get('is_violations', False)}")
-    print(f"Number of rows in result set: {final_metrics.get('row_indexes_count')}")
     print("\nPerformance Summary:")
     print(result["summary"])
     
