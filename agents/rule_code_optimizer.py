@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, common_mistakes_prompt
 import re
 import os
 
@@ -11,7 +11,7 @@ class RuleCodeOptimizer(BaseAgent):
         1. Compute Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
         2. Compute Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
         3. Efficiently identifying violating or satisfying rows
-        4. Returning a tuple of (support, confidence, satisfying_indexes, violation_indexes)
+        4. Returning a tuple of (support, confidence, satisfactions, violations)
 
         You specialize in pandas vectorization techniques, memory optimization, and algorithmic improvements
         to ensure code runs efficiently while maintaining correct rule evaluation logic."""
@@ -28,49 +28,11 @@ class RuleCodeOptimizer(BaseAgent):
         
         return self._optimize_performance(code, problem_description, profiling_data, dataframe_info, review_feedback)
     
-    def _optimize_performance(self, code, problem_description, profiling_data, dataframe_info, review_feedback, retrieval_context=None):
+    def _optimize_performance(self, code, problem_description, profiling_data, dataframe_info, 
+                              review_feedback, rule_format=None, retrieval_context=None):
         """Optimize code for performance based on profiling data"""
-        template = """
-        # Rule Description : {problem_description}
-
-        # DataFrame Information:
-        {dataframe_info}
-
-        # Current Code:
-        ```python
-        {code}
-        ```
-
-        # Line-by-Line Profiling:
-        {line_profiling}
-
-        # Overall Performance Metrics:
-        {overall_metrics}
-
-        # Reviewer Recommendations:
-        {review_feedback}
         
-        {retrieval_context}
-
-        Optimize this rule evaluation function to improve performance while maintaining its behavior. Focus on the bottleneck operations identified in the profiling data and address the reviewer recommendations above.
-
-        DataFrame Optimization Strategies:
-        1. Use vectorized operations instead of loops or apply()
-        2. Replace boolean masks with more efficient filtering
-        3. Use pandas built-in methods like query(), isin(), any(), all(), etc.
-        4. Minimize DataFrame copies with inplace operations when appropriate
-        5. Consider using numpy operations for pure numerical calculations
-        6. Use categorical dtypes for string columns with limited unique values
-        7. Only compute necessary columns and filter early to reduce memory usage
-
-        Return your answer in the following format:
-
-        OPTIMIZED_CODE:
-        ```python
-        # Your optimized code here
-        ```
-        """
-        # Format profiling data for template
+                # Format profiling data for template
         line_profiling = self._format_line_profiling(profiling_data.get("line_profiling", []))
         overall_metrics = self._format_overall_metrics(profiling_data.get("overall_metrics", {}))
         
@@ -79,17 +41,74 @@ class RuleCodeOptimizer(BaseAgent):
             review_feedback_text = "Reviewer suggested these improvements:\n" + "\n".join(f"- {rec}" for rec in review_feedback)
         else:
             review_feedback_text = "No specific improvement recommendations from reviewer."
+            
+        # Format the rule format information if available
+        format_guidance = ""
+        if rule_format:
+            # Handle rule_format as text instead of dictionary
+            format_guidance = f"""
+# Required Output Format
+The optimized code must maintain this exact output structure:
+
+{rule_format}
+"""
+        escaped_format_guidance = format_guidance.replace("{", "{{").replace("}", "}}")
+        template = f"""
+# Rule Description : {problem_description}
+
+# DataFrame Information:
+{dataframe_info}
+
+# Current Code:
+```python
+{code.replace('{', '{{').replace('}', '}}')}
+```
+
+# Line-by-Line Profiling:
+{line_profiling}
+
+# Overall Performance Metrics:
+{overall_metrics}
+
+# Reviewer Recommendations:
+{review_feedback}
+
+{retrieval_context}
+
+# Task
+Optimize this rule evaluation function to improve performance while maintaining its behavior. Focus on the bottleneck operations identified in the profiling data and address the reviewer recommendations above.
+
+{escaped_format_guidance}
+
+DataFrame Optimization Strategies:
+1. Use vectorized operations instead of loops or apply()
+2. Replace boolean masks with more efficient filtering
+3. Use pandas built-in methods like query(), isin(), any(), all(), etc.
+4. Minimize DataFrame copies with inplace operations when appropriate
+5. Consider using numpy operations for pure numerical calculations
+6. Use categorical dtypes for string columns with limited unique values
+7. Only compute necessary columns and filter early to reduce memory usage
+
+{common_mistakes_prompt()}
+
+Return your answer in the following format:
+
+OPTIMIZED_CODE:
+```python
+# Your optimized code here
+```
+"""
                 
         chain = self._create_chain(template=template)
         
         result = chain.invoke({
             "problem_description": problem_description,
-            "code": code,
             "line_profiling": line_profiling,
             "overall_metrics": overall_metrics,
             "dataframe_info": dataframe_info,
             "review_feedback": review_feedback_text,
-            "retrieval_context": retrieval_context or ""
+            "retrieval_context": retrieval_context or "",
+            "format_guidance": format_guidance
         })
         
         return {

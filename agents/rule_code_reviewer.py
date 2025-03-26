@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, common_mistakes_prompt
 import re
 
 class RuleCodeReviewer(BaseAgent):
@@ -10,13 +10,15 @@ class RuleCodeReviewer(BaseAgent):
         1. Compute Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
         2. Compute Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
         3. Efficiently identifying violating or satisfying rows
-        4. Returning a tuple of (support, confidence, satisfying_indexes, violation_indexes)
+        4. Returning a tuple of (support, confidence, satisfactions, violations)
         
         You evaluate code based on:
         1. Correctness - Does the function correctly implement the rule logic?
         2. Efficiency - Is the implementation using optimal pandas/numpy techniques?
         3. Readability - Is the code well-structured and appropriately commented?
         4. Robustness - Does it handle edge cases like missing values properly?
+        
+        Keep in mind that the dataframes can be large and performance is critical.
         
         Based on your analysis, you'll recommend whether to:
         - Terminate optimization (if code is already well-optimized or further improvements would be minimal)
@@ -35,8 +37,22 @@ class RuleCodeReviewer(BaseAgent):
         return self._review_code(code, previous_code, problem_description, test_result, dataframe_info)
     
     def _review_code(self, code, previous_code, problem_description, test_result, dataframe_info):
+        
+        # Extract metrics from test result
+        execution_time = test_result.get("execution_time", "N/A")
+        memory_usage = test_result.get("memory_usage", "N/A")
+        function_results = test_result.get("function_results", {})
+        
+        # prev_code = previous_code.replace('{', '{{').replace('}', '}}') if previous_code else "No previous version available"
+        """
+        # Previous Version (if applicable)
+        ```python
+        {previous_code}
+        ```
+        """
+        
         """Review the code and provide recommendations for improvement"""
-        template = """
+        template = f"""
 # Problem Description
 {problem_description}
 
@@ -45,18 +61,12 @@ class RuleCodeReviewer(BaseAgent):
 
 # Current Code
 ```python
-{code}
-```
-
-# Previous Version (if applicable)
-```python
-{previous_code}
+{code.replace('{', '{{').replace('}', '}}')}
 ```
 
 # Performance Metrics
 - Execution Time: {execution_time}
 - Memory Usage: {memory_usage}
-- Function Results: {function_results}
 
 Thoroughly review this DataFrame rule evaluation function and answer the following questions:
 
@@ -65,6 +75,8 @@ Thoroughly review this DataFrame rule evaluation function and answer the followi
 3. Are there any performance bottlenecks or inefficient operations that could be improved?
 4. Is the code clear, well-structured, and appropriately commented?
 5. Does it handle edge cases like missing values properly?
+
+{common_mistakes_prompt()}
 
 Based on your analysis, provide:
 1. A list of specific improvement recommendations (if any)
@@ -89,28 +101,18 @@ REASONING:
 [Your reasoning for the final recommendation]
 """
         
-        # Extract metrics from test result
-        execution_time = test_result.get("execution_time", "N/A")
-        memory_usage = test_result.get("memory_usage", "N/A")
-        function_results = test_result.get("function_results", {})
         
-        # For previous_code, handle the case where it might be None
-        prev_code_display = previous_code if previous_code else "No previous version available"
-        
-        chain = self._create_chain(template=template)
+        chain = self._create_chain(template=template, parse_with_prompt=False)
         
         result = chain.invoke({
             "problem_description": problem_description,
             "dataframe_info": dataframe_info,
-            "code": code,
-            "previous_code": prev_code_display,
             "execution_time": execution_time,
-            "memory_usage": memory_usage,
-            "function_results": function_results
+            "memory_usage": memory_usage
         })
         
         # Parse the review result to extract structured information
-        review_text = result.get('code', result) if isinstance(result, dict) else result
+        review_text = result.get('content', result) if isinstance(result, dict) else result
         
         # Extract recommendations and final decision
         analysis = self._extract_review_sections(review_text)

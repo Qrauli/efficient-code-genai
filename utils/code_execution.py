@@ -158,11 +158,16 @@ def profile_with_scalene(code, config, test_input=None):
     output_json_path = temp_file_path + '.json'
     
     try:
-        # Command to execute Scalene with JSON output
+        # Set a shorter profiling interval for faster results with large datasets
+        profile_interval = config.PROFILE_INTERVAL if hasattr(config, 'PROFILE_INTERVAL') else 4
+        
+        # Command to execute Scalene with JSON output and optimized settings
         cmd = [
             'python3', '-m', 'scalene',
             '--json', '--outfile', output_json_path,
             '--cpu', '--memory',
+            '--profile-interval', str(profile_interval),  # Faster sampling
+            '--reduced-profile',  # Lighter profiling for faster execution
             temp_file_path
         ]
         
@@ -174,6 +179,9 @@ def profile_with_scalene(code, config, test_input=None):
                 input_file.write(test_input.encode())
                 stdin = open(input_file_path, 'r')
         
+        # Use a shorter timeout for profiling than for regular execution
+        profiling_timeout = min(5.0, config.TIMEOUT_SECONDS) if hasattr(config, 'TIMEOUT_SECONDS') else 5.0
+        
         # Execute Scalene profiler
         process = subprocess.Popen(
             cmd,
@@ -184,14 +192,14 @@ def profile_with_scalene(code, config, test_input=None):
         
         # Wait for the process to complete with timeout
         try:
-            stdout, stderr = process.communicate(timeout=config.TIMEOUT_SECONDS)
+            stdout, stderr = process.communicate(timeout=profiling_timeout)
             output = stdout.decode()
             error = stderr.decode()
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
             output = stdout.decode()
-            error = stderr.decode() + "\nProfiling timed out"
+            error = stderr.decode() + f"\nProfiling timed out after {profiling_timeout} seconds"
         
         # Load the JSON profile if it exists
         profile_data = {}
@@ -207,7 +215,8 @@ def profile_with_scalene(code, config, test_input=None):
             "profile_data": profile_data,
             "output": output,
             "error": error,
-            "success": process.returncode == 0
+            "success": process.returncode == 0,
+            "timed_out": "timed out" in error.lower()
         }
     
     except Exception as e:
@@ -215,7 +224,8 @@ def profile_with_scalene(code, config, test_input=None):
             "profile_data": {},
             "output": "",
             "error": str(e) + "\n" + traceback.format_exc(),
-            "success": False
+            "success": False,
+            "timed_out": False
         }
     finally:
         # Clean up temporary files

@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, common_mistakes_prompt
 import pandas as pd
 import numpy as np
 import sys
@@ -13,18 +13,34 @@ class RuleFunctionGenerator(BaseAgent):
         Focus on vectorized operations and pandas-native functions for best performance."""
         super().__init__(config, "RuleFunctionGenerator", system_prompt)
     
-    def process(self, rule_description, df_sample=None, context=None):
+    def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None):
         """Generate a function that evaluates the given rule on a pandas DataFrame
         
         Args:
             rule_description (str): Description of the rule to implement
             df_sample (str): DataFrame sample information
+            function_name (str): Name of the function to generate (default: execute_rule)
             context (str, optional): Retrieved context information
+            rule_format (str, optional): Format specification for rule output structure
             
         Returns:
             dict: Generated code and metadata
         """ 
         
+        # Format the rule format information if available
+        format_guidance = ""
+        if rule_format:
+            # Handle rule_format as text instead of dictionary
+            format_guidance = f"""
+# Output Format Specification
+Based on the rule analysis, implement the following output structure:
+
+{rule_format}
+"""
+        # Use double curly braces to escape any curly braces in the format_guidance
+        # that might come from rule_format
+        escaped_format_guidance = format_guidance.replace("{", "{{").replace("}", "}}")
+
         template = f"""
 # Rule Description
 {rule_description}
@@ -35,7 +51,7 @@ class RuleFunctionGenerator(BaseAgent):
 {context or ""}
 
 # Task
-Generate a Python function named `evaluate_rule` that takes a pandas DataFrame as input and evaluates the rule described above.
+Generate a Python function named `{function_name}` that takes a pandas DataFrame as input and evaluates the rule described above.
 
 - The function should compute:
        - Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
@@ -47,7 +63,9 @@ Generate a Python function named `evaluate_rule` that takes a pandas DataFrame a
     - The function should return:
         - `support`: the support value   
         - `confidence`: the confidence value.
-        - `satisfying_indexes`, `violation_indexes` : presentations of units that satisfy or violate the rule. This presentation should utilize the index of the dataframe to represent rows. 
+        - `satisfactions`, `violations` : presentations of units that satisfy or violate the rule. This presentation should utilize the index of the dataframe to represent rows. 
+
+{escaped_format_guidance}
 
 Prioritize:
 - Vectorized operations over loops
@@ -58,8 +76,15 @@ Prioritize:
 IMPORTANT:
 - Your response should ONLY contain the Python function wrapped in ```python and ``` markers.
 - Make sure that your code uses the exact column names specified in the DataFrame sample not the rule description. For example, if a rule mentions 'AreaCode' but the DataFrame sample shows the column as 'AreaCode(String)', you MUST use 'AreaCode(String)' in your code.
-- Note that the code will be used for tables with multiple millions of rows. Ensure that the code is efficient and uses as little memory as possible.
+- Note that the code will be used for tables with multiple millions of rows. Ensure that the code is efficient and uses as little memory as possible. Try to avoid copying and use in-place operations if possible.
 - Do not assume that the DataFrame sample is exhaustive. Your function should work with any DataFrame that has the same structure.
+- In the generated code, please delete unused intermediate variables to free memory before returning the results. Use `del` to delete variables and `gc.collect()` to free memory.
+- In the generated code, you should first limit the input DataFrame to the columns used, eliminating unused columns, and use this simplified DataFrame for the remaining operations.
+- If the rule is not about checking None values, please exclude all rows where any of the relevant columns is None, using df.dropna(subset=relevant_columns), before analysis.
+- Be careful when you write the code of generating the inner dictionaries in the violations, do not replace the existing entries already contained in the inner dictionary. 
+- Ensure that each key used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, always includes the column name when a column value is part of the key. For example, valid keys can be ("A", 100) or (("A", 100), ("B", 200)), but not (100) or (100, 200).
+
+{common_mistakes_prompt()}
 """
         
         parser = self._extract_code_parser()
@@ -69,20 +94,21 @@ IMPORTANT:
         
         result = chain.invoke({
             "rule_description": rule_description,
-            "df_sample": df_sample
+            "df_sample": df_sample,
+            "function_name": function_name,
+            "context": context
         })
         
         return {
             "code": result['code'],
             "metadata": {
                 "agent": self.name,
-                "rule_description": rule_description
+                "rule_description": rule_description,
+                "function_name": function_name
             }
         }
     
-
-    
-    def test_function(self, function_code, dataframe):
+    def test_function(self, function_code, dataframe, function_name="execute_rule"):
         """Test the function code against a dataframe while also collecting performance metrics"""
         
         import tempfile
@@ -108,17 +134,17 @@ try:
     df = pd.read_pickle("{escaped_path}")
         
     # Run the function and capture results
-    result = evaluate_rule(df)
+    result = {function_name}(df)
     
     # Extract results
     if isinstance(result, tuple) and len(result) >= 4:
-        support, confidence, satisfying_indexes, violation_indexes = result        
+        support, confidence, satisfactions, violations = result        
         # Create a proper JSON object and print it using json.dumps
         result_dict = {{
             "support": support,
-            "confidence": confidence, 
-            "satisfying_indexes": satisfying_indexes,
-            "violation_indexes": violation_indexes
+            "confidence": confidence 
+            # "satisfactions": satisfactions,
+            # "violations": violations
         }}
         print("FUNCTION_RESULT: " + json.dumps(result_dict))
         success = True
@@ -188,6 +214,7 @@ except Exception as e:
                 "error": error_message or profile_result.get("error"),
                 "profile_data": profile_data,
                 "execution_time": execution_time,
+                "timed_out": profile_result.get("timed_out", False)
             }
         finally:
             # Clean up the temporary file

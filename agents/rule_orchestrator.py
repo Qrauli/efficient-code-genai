@@ -4,6 +4,7 @@ from .rule_function_generator import RuleFunctionGenerator
 from .rule_code_optimizer import RuleCodeOptimizer
 from .rule_code_tester import RuleCodeTester
 from .rule_code_reviewer import RuleCodeReviewer
+from .rule_format_analyzer import RuleFormatAnalyzer  # Add this import
 import pandas as pd
 
 # Add imports
@@ -16,6 +17,7 @@ class RuleOrchestrator(Orchestrator):
         self.code_optimizer = RuleCodeOptimizer(config)
         self.code_tester = RuleCodeTester(config)
         self.code_reviewer = RuleCodeReviewer(config)
+        self.rule_format_analyzer = RuleFormatAnalyzer(config)  # Initialize the format analyzer
         
         # Initialize retrieval if enabled
         self.use_retrieval = use_retrieval if use_retrieval is not None else config.ENABLE_RETRIEVAL
@@ -36,19 +38,35 @@ class RuleOrchestrator(Orchestrator):
         # Initialize the retriever
         self.retriever.initialize()
     
-    def process_rule(self, rule_description, dataframe: pd.DataFrame, sample_size=None):
+    def process_rule(self, rule_description, dataframe: pd.DataFrame, rule_id=None, sample_size=None):
         """Process a rule description to generate and optimize a function for DataFrame rule evaluation"""
         results_history = []
         
+        # Use a default rule_id if not provided
+        function_name = f"execute_rule{rule_id}" if rule_id is not None else "execute_rule"
+        
         # Use a sample of the dataframe for development if specified
         working_df = dataframe
-        if sample_size and len(dataframe) > sample_size:
-            working_df = dataframe.sample(sample_size, random_state=42)
+        initial_sample_size = sample_size or min(1000, len(dataframe))
+        current_sample_size = initial_sample_size
+        
+        if current_sample_size and len(dataframe) > current_sample_size:
+            working_df = dataframe.sample(current_sample_size, random_state=42)
         
         # Create dataframe info once for reuse
         dataframe_info = _create_dataframe_sample(working_df)
         
-        # Phase 1: Generate initial function - now with retrieval context if enabled
+        # Phase 0: Analyze rule format and determine output structure
+        format_analysis_result = self.rule_format_analyzer.process(
+            rule_description, 
+            dataframe_info=dataframe_info
+        )
+        
+        # Get the rule format as text directly from the result
+        rule_format = format_analysis_result.get("rule_format", "")
+        results_history.append({"step": "format_analysis", "result": format_analysis_result})
+        
+        # Phase 1: Generate initial function with retrieval context and format specifications
         generator_context = self._get_relevant_context(
             query=f"pandas dataframe function to evaluate rule: {rule_description}",
             source_types=["documentation", "code_snippet"]
@@ -57,16 +75,40 @@ class RuleOrchestrator(Orchestrator):
         generator_result = self.rule_function_generator.process(
             rule_description, 
             df_sample=dataframe_info,
-            context=generator_context
+            function_name=function_name,
+            context=generator_context,
+            rule_format=rule_format
         )
         
         current_code = generator_result["code"]
         results_history.append({"step": "generation", "result": generator_result})
         
         # Phase 2: Test function execution and collect performance metrics in one step
-        test_result = self.rule_function_generator.test_function(current_code, working_df)
+        test_result = self.rule_function_generator.test_function(current_code, working_df, function_name=function_name)
+        
+        # Adaptive sampling: If test times out, reduce sample size and retry
+        if test_result.get("timed_out", False) and current_sample_size > 100:
+            # Reduce sample size by half and retry
+            current_sample_size = max(100, current_sample_size // 2)
+            working_df = dataframe.sample(current_sample_size, random_state=42)
+            dataframe_info = _create_dataframe_sample(working_df)
+            
+            # Log the sample size reduction
+            results_history.append({
+                "step": "sample_size_reduction", 
+                "result": {
+                    "previous_size": initial_sample_size,
+                    "new_size": current_sample_size,
+                    "reason": "Execution timed out with larger sample"
+                }
+            })
+            
+            # Retry with smaller sample
+            test_result = self.rule_function_generator.test_function(current_code, working_df, function_name=function_name)
+        
         test_log = test_result.copy()
-        # del test_log["profile_data"]
+        if "function_results" in test_log: del test_log["function_results"]
+        if "profile_data" in test_log: del test_log["profile_data"]
         results_history.append({"step": "initial_testing", "result": test_log})
         
         # Phase 3: Optimization loop
@@ -82,15 +124,18 @@ class RuleOrchestrator(Orchestrator):
                     code=current_code,
                     problem_description=f"DataFrame rule evaluation function for: {rule_description}",
                     test_results=[test_result],
-                    dataframe_info=dataframe_info
+                    dataframe_info=dataframe_info,
+                    function_name=function_name,
+                    rule_format=rule_format  # Pass the rule format
                 )
                 results_history.append({"step": f"refinement_{iterations}_correction", "result": corrected_result})
                 
                 # Update code and test again
                 current_code = corrected_result.get("corrected_code", current_code)
-                test_result = self.rule_function_generator.test_function(current_code, working_df)
+                test_result = self.rule_function_generator.test_function(current_code, working_df, function_name=function_name)
                 test_log = test_result.copy()
-                # del test_log["profile_data"]
+                if "function_results" in test_log: del test_log["function_results"]
+                if "profile_data" in test_log: del test_log["profile_data"]
                 results_history.append({"step": f"refinement_{iterations}_retest", "result": test_log})
                 
                 iterations += 1
@@ -102,7 +147,8 @@ class RuleOrchestrator(Orchestrator):
                 "previous_code": previous_code,
                 "problem_description": f"DataFrame rule evaluation function for: {rule_description}",
                 "test_result": test_result,
-                "dataframe_info": dataframe_info
+                "dataframe_info": dataframe_info,
+                "rule_format": rule_format  # Pass the rule format
             }
             
             review_result = self.code_reviewer.process(review_input)
@@ -154,19 +200,25 @@ class RuleOrchestrator(Orchestrator):
                 },
                 "phase": "optimization",
                 "review_feedback": review_result.get("improvement_recommendations", []),
-                "retrieval_context": optimization_context  # Add retrieved context
+                "retrieval_context": optimization_context,
+                "rule_format": rule_format  # Pass the rule format
             }
             
             optimizer_result = self.code_optimizer.process(optimizer_input)
-            results_history.append({"step": f"refinement_{iterations}_optimization", "result": optimizer_result})
+            log_optimizer_result = optimizer_result.copy()
+            if "profiling_data" in log_optimizer_result: del log_optimizer_result["profiling_data"]
+            results_history.append({"step": f"refinement_{iterations}_optimization", "result": log_optimizer_result})
             
             # Update and retest the optimized code
             previous_code = current_code
             current_code = optimizer_result.get("optimized_code", current_code)
             
             # Test the updated code
-            test_result = self.rule_function_generator.test_function(current_code, working_df)
-            results_history.append({"step": f"refinement_{iterations}_validation", "result": test_result})
+            test_result = self.rule_function_generator.test_function(current_code, working_df, function_name=function_name)
+            test_log = test_result.copy()
+            if "function_results" in test_log: del test_log["function_results"]
+            if "profile_data" in test_log: del test_log["profile_data"]
+            results_history.append({"step": f"refinement_{iterations}_validation", "result": test_log})
             
             iterations += 1
         
@@ -201,7 +253,8 @@ class RuleOrchestrator(Orchestrator):
             "code": current_code,
             "summary": summary,
             "results_history": results_history,
-            "final_metrics": self._extract_rule_metrics(final_test_result)
+            "final_metrics": self._extract_rule_metrics(final_test_result),
+            "function_name": function_name
         }
     
     def _extract_rule_metrics(self, test_result):
@@ -318,8 +371,8 @@ class RuleOrchestrator(Orchestrator):
                 
             # Get rule evaluation metrics
             function_results = final_test_result.get("function_results", {})
-            support = function_results.get("support", "N/A")
-            confidence = function_results.get("confidence", "N/A")
+            support = function_results.get("support", 0)
+            confidence = function_results.get("confidence", 0)
             is_violations = function_results.get("is_violations", False)
             row_indexes_count = function_results.get("row_indexes_count", 0)
             

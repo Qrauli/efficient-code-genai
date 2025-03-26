@@ -27,7 +27,7 @@ class BaseAgent(ABC):
         """Process the input and return the result"""
         pass
     
-    def _create_chain(self, template, parser: BaseOutputParser = StrOutputParser()):
+    def _create_chain(self, template, parser: BaseOutputParser = StrOutputParser(), parse_with_prompt=True):
         """Create an LLM chain with the given template and input variables"""
         
         prompt = ChatPromptTemplate.from_messages([
@@ -42,12 +42,14 @@ class BaseAgent(ABC):
             # For JSON parsers, clean the output first
             if isinstance(parser, JsonOutputParser) or isinstance(parser, RetryWithErrorOutputParser):
                 completion_content = clean_json_output(completion_content)
+            elif not parse_with_prompt:
+                return {"content": completion_content}
             else:
                 extracted = extract_code(completion_content)
                 if extracted:
                     return {"code": extracted}
         
-            return parser.parse_with_prompt(completion=completion_content, prompt_value=chain_output["prompt_value"])
+            return parser.parse(completion_content)
     
         chain = prompt | self.llm
         main_chain = RunnableParallel(
@@ -118,3 +120,29 @@ def extract_code(text):
     
     # If no code blocks found, return the original text
     return text
+
+def common_mistakes_prompt():
+    """Prompt for common mistakes in code debugging tasks"""
+    return """
+Common Mistakes to Avoid When You Generate Code:
+1. Failing to Prepare Data for Regular Expressions: Not converting data to the correct format (e.g., strings) before applying regular expressions can lead to errors or unintended matches.
+2. Ignoring Missing Values: Failing to account for NaN values in the dataset can lead to unexpected results. Always handle missing values using fillna() or dropna() appropriately.
+3. Using Chained Indexing: Using chained indexing (e.g., df[df['column'] > 0]['column2'] = value) can lead to SettingWithCopy warnings and incorrect assignments. Use .loc[] instead.
+4. Iterating Inefficiently: Using .iterrows() or .apply() for row-wise operations instead of vectorized operations can significantly reduce performance.
+5. Allowing Data Type Mismatches: Not ensuring columns have consistent data types before operations can cause errors. Use df.astype() to cast types where needed.
+6. Creating Unnecessary Copies: Creating unnecessary copies of the dataframe wastes memory. Work on slices or views whenever possible.
+7. Mismanaging Index Operations: Resetting or setting indexes carelessly can disrupt the integrity of the dataframe. Always verify the dataframe after index operations.
+8. Assuming Column Order is Fixed: Relying on column order instead of column names can break the code if the order changes unexpectedly.
+9. Overwriting Critical Data: Overwriting important variables inadvertently can cause loss of critical data. Use meaningful variable names to track changes.
+10. Ignoring Memory Usage: Processing large datasets without monitoring memory usage can lead to crashes. Use df.info() and optimize operations for memory efficiency.
+11. Recalculating Intermediate Results: Recomputing the same results multiple times instead of storing them in temporary variables wastes resources.
+12. Hardcoding Values: Hardcoding column names, thresholds, or parameters reduces flexibility. Use variables or configuration files instead.
+13. Ignoring Performance Warnings: Overlooking warnings or errors in the console may result in performance or correctness issues.
+14. Skipping Code Documentation: Failing to add comments for non-trivial operations makes the code harder to understand and maintain.
+15. Neglecting Thorough Testing: Not testing the code with edge cases like empty dataframes, extreme values, or unexpected structures can result in undetected bugs.
+16. Overlooking Duplicate Entries: Ignoring duplicate rows or entries can affect data quality checks. Use df.duplicated() to identify and handle duplicates.
+17. Using Inconsistent Column Name Case: Referencing column names inconsistently with case sensitivity can cause KeyErrors in datasets with varying conventions.
+18. Failing to Validate Output: Not verifying that data quality rules are applied correctly can result in undetected errors. Check flagged rows and passing rows.
+19. Altering Indices Unintentionally: Changing indices during intermediate steps without tracking the original index can cause alignment issues.
+20. Misusing Inplace Operations: Using inplace=True carelessly can overwrite data unintentionally. Avoid inplace operations unless absolutely necessary.
+"""

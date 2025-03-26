@@ -8,7 +8,7 @@ class Config:
     # LLM Configuration
     LLM_API_KEY = os.getenv("LLM_API_KEY")
     LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-    LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
+    LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-001")
     
     # Retrieval System Configuration
     VECTOR_DB_CONNECTION = os.getenv("VECTOR_DB_CONNECTION", "chroma://localhost:8000")
@@ -16,11 +16,11 @@ class Config:
     HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA", "0.5"))  # Weight between sparse and dense retrieval
     
     # Agent Configuration
-    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "7"))
+    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
     AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
     
     # Evaluation Configuration
-    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "60"))
+    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "10"))
     MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "1024"))
     
     # Paths
@@ -34,6 +34,12 @@ class Config:
     ENABLE_RETRIEVAL = False
     RETRIEVAL_STORAGE_PATH = "data/retrieval_store"
     RETRIEVAL_TOP_K = 5
+    
+    # Add to your config file
+    PROFILE_INTERVAL = 4  # Scalene profile sampling interval in seconds
+    MAX_PROFILING_TIME = 5.0  # Maximum time for profiling in seconds
+    ADAPTIVE_SAMPLING = True  # Enable adaptive sample size reduction
+    MIN_SAMPLE_SIZE = 100  # Minimum sample size to use when reducing
     
     # Default retrieval sources
     DEFAULT_RETRIEVAL_SOURCES = [

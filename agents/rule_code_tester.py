@@ -1,5 +1,5 @@
 from typing import List, TypedDict, Any
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, common_mistakes_prompt
 
 import sys
 sys.path.append("..")
@@ -16,8 +16,8 @@ class TestCase(TypedDict):
     
 class RuleCodeTester(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert code testing agent specialized in verifying the correctness and efficiency of DataFrame rule evaluation functions.
-        Your goal is to identify bugs and validate that rule evaluation code returns the expected output format (support, confidence, row_indexes, is_violations)."""
+        system_prompt = """You are an expert code correction agent specialized in fixing the correctness and efficiency of DataFrame rule evaluation functions.
+        Your goal is to fix bugs and validate that rule evaluation code returns the expected output format."""
         super().__init__(config, "CodeTester", system_prompt)
     
     def process(self, input_data):
@@ -47,16 +47,28 @@ class RuleCodeTester(BaseAgent):
             }
         }
         
-    def correct_code(self, code, problem_description, test_results, dataframe_info):
+    def correct_code(self, code, problem_description, test_results, dataframe_info, function_name="execute_rule", rule_format=None):
         """Fix code to make it pass all tests"""
         # Extract failing tests and their error messages
         failing_tests = [tr.get("error", "") for tr in test_results if not tr.get("success", False)]
-        template = """
+        
+        # Format the rule format information if available
+        format_guidance = ""
+        if rule_format:
+            # Handle rule_format as text instead of dictionary
+            format_guidance = f"""
+# Required Output Format
+When fixing the code, ensure it maintains this exact return structure:
+
+{rule_format}
+"""
+        escaped_format_guidance = format_guidance.replace("{", "{{").replace("}", "}}")
+        template = f"""
 Problem Description: {problem_description}
 
 Current Code:
 ```python
-{code}
+{code.replace('{', '{{').replace('}', '}}')}
 ```
 
 Errors:
@@ -65,30 +77,32 @@ Errors:
 DataFrame Structure:
 {dataframe_info}
 
+# Task
 Fix the code to make all tests pass. Focus only on correctness for now, not optimization.
 The goal is to make the code work correctly according to the requirements.
+
+{escaped_format_guidance}
 
 Common Issues to Check:
 1. Incorrect column names or DataFrame access patterns
 2. Issues handling missing values (NaN)
 3. Type errors (mixing numeric/string operations)
 4. Incorrect logical conditions
-5. Improper handling of the return format (support, confidence, row_indexes, is_violations)
+5. Improper handling of the return format 
 
 Your response should ONLY contain the python code and nothing else.
 ALWAYS wrap your code in ```python and ``` markers.
+
+{common_mistakes_prompt()}
 """
-                
         chain = self._create_chain(
             template=template       
         ) 
         result = chain.invoke({
             "problem_description": problem_description,
-            "code": code,
             "failing_tests": failing_tests,
             "dataframe_info": dataframe_info
-        }
-        )
+        })
         
         return {
             "original_code": code,
