@@ -5,7 +5,7 @@ import pandas as pd
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader, DirectoryLoader, TextLoader
 from langchain_community.vectorstores import Chroma
-from langchain_google_vertexai import VertexAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.retrievers import ParentDocumentRetriever
 import logging
 
@@ -24,7 +24,7 @@ class ContextRetriever:
     def __init__(self, config, sources: List[RetrievalSource] = None):
         self.config = config
         self.sources = sources or []
-        self.embeddings = VertexAIEmbeddings()
+        self.embeddings =  HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
         self.vectorstore = None
         self.retriever = None
         self.initialized = False
@@ -79,16 +79,20 @@ class ContextRetriever:
                     
                     try:
                         if source.type == "web":
-                            loader = WebBaseLoader(source.path)
-                            documents = loader.load()
-                            
-                            # Use appropriate splitter
-                            if "documentation" in source.description.lower():
-                                splitter = doc_splitter
-                            else:
-                                splitter = code_splitter
+                            try:
+                                loader = WebBaseLoader(source.path)
+                                documents = loader.load()
                                 
-                            split_docs = splitter.split_documents(documents)
+                                # Use appropriate splitter
+                                if "documentation" in source.description.lower():
+                                    splitter = doc_splitter
+                                else:
+                                    splitter = code_splitter
+                                    
+                                split_docs = splitter.split_documents(documents)
+                            except Exception as e:
+                                self.logger.error(f"Error loading web source {source.name}: {str(e)}")
+                                continue  # Skip this source if it fails to load
                             
                         elif source.type == "documentation":
                             # For local documentation files
@@ -152,7 +156,7 @@ class ContextRetriever:
         except Exception as e:
             self.logger.error(f"Error initializing retriever: {str(e)}")
             raise
-    
+
     def retrieve(self, query: str, filter_sources: List[str] = None, top_k: int = None) -> List[Dict[str, Any]]:
         """Retrieve relevant context based on the query"""
         if not self.initialized:
@@ -225,3 +229,68 @@ class ContextRetriever:
         except Exception as e:
             self.logger.error(f"Error adding generated code: {str(e)}")
             return False
+
+    def initialize_comprehensive_retrieval(self, include_web_search=True):
+        """Initialize the retriever with a comprehensive set of pandas resources
+        
+        Args:
+            include_web_search (bool): Whether to include web search results
+        """
+        self.logger.info("Initializing comprehensive retrieval system")
+        
+        # Add all default sources first
+        for source_config in self.config.DEFAULT_RETRIEVAL_SOURCES:
+            source = RetrievalSource(**source_config)
+            self.add_source(source)
+            
+        # Add additional static resources defined in config
+        if hasattr(self.config, 'ADDITIONAL_RETRIEVAL_SOURCES'):
+            for source_config in self.config.ADDITIONAL_RETRIEVAL_SOURCES:
+                source = RetrievalSource(**source_config)
+                self.add_source(source)
+        
+        # Add web search results if enabled
+        if include_web_search and hasattr(self.config, 'WEB_SEARCH_ENABLED') and self.config.WEB_SEARCH_ENABLED:
+            self._add_web_search_resources()
+        
+        # Initialize the vectorstore with all collected sources
+        self.initialize(force_reload=False)
+        self.logger.info(f"Comprehensive retrieval system initialized with {self.vectorstore._collection.count() if self.vectorstore else 0} documents")
+
+    def _add_web_search_resources(self):
+        """Add pre-defined web search results for common pandas patterns"""
+        from .web_search import WebSearchIntegration
+        web_search = WebSearchIntegration(self)
+        
+        # Get pattern types from config or use defaults
+        pattern_types = getattr(self.config, 'WEB_SEARCH_PATTERN_TYPES', 
+                              ["performance", "vectorization", "memory"])
+        
+        # Special pandas optimization queries that are likely to be useful
+        optimization_queries = [
+            "pandas dataframe optimization techniques",
+            "pandas vectorization examples",
+            "efficient pandas aggregation techniques",
+            "pandas memory usage optimization",
+            "pandas query vs loc performance",
+            "pandas efficient filtering large dataframes",
+            "pandas groupby optimization",
+            "pandas apply vs vectorized operations"
+        ]
+        
+        # Process each pattern type
+        for pattern_type in pattern_types:
+            try:
+                self.logger.info(f"Adding resources for pandas {pattern_type} patterns")
+                web_search.search_for_pandas_patterns(pattern_type)
+            except Exception as e:
+                self.logger.error(f"Error retrieving {pattern_type} patterns: {str(e)}")
+        
+        # Process specific optimization queries
+        for query in optimization_queries:
+            try:
+                self.logger.info(f"Searching for: {query}")
+                max_results = getattr(self.config, 'WEB_SEARCH_MAX_RESULTS_PER_QUERY', 3)
+                web_search.search_and_add_sources(query, num_results=max_results)
+            except Exception as e:
+                self.logger.error(f"Error searching for '{query}': {str(e)}")

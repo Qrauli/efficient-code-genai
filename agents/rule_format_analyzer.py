@@ -1,5 +1,5 @@
 from .base_agent import BaseAgent
-import pandas as pd
+from langchain_core.output_parsers import JsonOutputParser
 
 class RuleFormatAnalyzer(BaseAgent):
     def __init__(self, config):
@@ -25,7 +25,7 @@ class RuleFormatAnalyzer(BaseAgent):
 {dataframe_info}
 
 # Task
-Analyze this rule and determine:
+Analyze the provided rule and determine:
 1. Whether it is a single-row rule or a multi-row rule
 2. If it's a multi-row rule, whether it's a group-validation rule
 3. The exact structure needed for the rule's output, including:
@@ -36,32 +36,8 @@ Analyze this rule and determine:
 ## Fundamental Concepts for Rule Evaluation:
 
 ### Rule Components:
-- **Body (Antecedent)**: The condition part of a rule that must be true for the rule to be applicable.
+- **Body (Antecedent)**: The condition part of a rule that must be true for the rule to be applicable. This is the "if" part of the rule. Quite often, there is no body in the rule and the rule is unconditional: e.g., "All values in column A must be unique".
 - **Head (Consequent)**: The expected outcome if the body is true. What the rule is asserting should be true.
-
-### Support and Confidence Calculation:
-
-#### Support:
-Support measures how frequently the rule appears in the dataset.
-- For single-row rules: Support = (Number of rows where the entire rule (body AND head) is satisfied) / (Total number of rows)
-- For rules without a body (unconditional constraints): Support = 1.0
-- For multi-row rules: Support may need to be adjusted based on the specific rule type
-
-#### Confidence:
-Confidence measures the reliability of the rule.
-- Confidence = (Number of rows where the entire rule (body AND head) is satisfied) / (Number of rows where only the body of the rule is satisfied)
-- If the body is never satisfied (denominator is zero), confidence is typically defined as 1.0
-- For rules without a body: Confidence = Support
-
-### Satisfactions and Violations Structure:
-
-#### Single-Row Rules:
-- **Satisfactions**: Set of row indices where the rule is fully satisfied (both body and head are true)
-- **Violations**: Set of row indices where the rule is violated (body is true but head is false)
-
-#### Multi-Row Rules (Group-Validation):
-- **Satisfactions**: Dictionary with group identifiers as keys and information about satisfying groups as values
-- **Violations**: Dictionary with group identifiers as keys and information about violating groups as values
 
 ## Reference Information on Rule Types:
 
@@ -84,6 +60,76 @@ Example: "For each CustomerID, all Orders must have the same ShippingAddress"
 ### Group-Validation Rule:
 A multi-row rule that involves grouping rows based on specific column values and evaluating whether certain criteria are satisfied within each group.
 Examples include functional dependencies, unique key constraints, outlier detection, and aggregation constraints.
+
+### Support and Confidence Calculation:
+
+#### Support:
+Support measures how many rows in the dataset are involved in the rule, relative to the total number of rows in the dataset.
+- For single-row rules: Support = (Number of rows where the entire rule (body AND head) is satisfied) / (Total number of rows)
+- For rules without a body (unconditional constraints): Support = 1.0
+- For multi-row rules: 
+    - Support = (Number of unique rows involved in satisfactions and violations) / (Total number of rows in the dataset)
+        Note that number of groups means number of group_keys
+    - Steps to Compute Support:
+        - Extract all row indexes that appear in both violations and satisfactions.
+        - Count the number of unique row indexes.
+        - Divide this count by the total number of rows in the dataset.
+        
+#### Confidence:
+Confidence measures how often the rule is satisfied when applied to the dataset.
+- For single-row rules: Confidence = (Number of rows where the entire rule (body AND head) is satisfied) / (Number of rows where only the body of the rule is satisfied)
+    - If the body is never satisfied (denominator is zero), confidence is typically defined as 1.0
+    - For rules without a body: Confidence = Support
+- For multi-row rules: 
+    - Confidence = (Number of groups in satisfactions) / (Number of groups in violations + Number of groups in satisfactions)
+    - Steps to Compute Confidence:
+        - Count the number of group keys in the satisfactions dictionary.
+        - Count the number of group keys in the violations dictionary.
+        - Apply the formula using these counts.
+
+### Satisfactions and Violations Structure:
+
+#### Single-Row Rules:
+- **Satisfactions**: Set of row indices where the rule is fully satisfied (both body and head are true)
+- **Violations**: Set of row indices where the rule is violated (body is true but head is false)
+
+#### Multi-Row Rules (Group-Validation):
+- **Satisfactions**: Dictionary with group identifiers as keys and information about satisfying groups as values
+- **Violations**: Dictionary with group identifiers as keys and information about violating groups as values
+
+A data quality checking rule that applies to multiple rows in each check should have its **violations** and **satisfactions** represented as a dictionary:
+
+{{
+    group_key: 
+        a list of dictionaries  
+        or  
+        a single dictionary
+}}
+
+Each `group_key` represents a group of rows, i.e., set of rows grouped by one or more columns. 
+Each `group_key` can be structured as:
+- A single tuple if the group key is defined on a single column, for example: `("employee_id", "tech112212")`.
+- A tuple of key-value pairs if the group key is defined on multiple columns: `(("team_id", "sales"), ("employee_name", "Jack"))`.
+
+Each group_key's corresponding value represents either violations or satisfactions of the rule in that group. 
+This value:
+- Can be a list of dictionaries (when multiple violation representations or satisfaction representations exist in the group).  
+- Or a single dictionary (when a single violation representation or a single satisfaction representation is required.)
+
+Each dictionary inside the corresponding value of a group_key is called a violation representation or a satisfaction representation.  
+
+Each representation dictionary consists of keys that describe the roles played by different rows (or by different row groups) in the violation or satisfaction.  
+The values corresponding to these keys store the row indexes involved in the representation.
+
+In each representation dictionary, a key's corresponding value can be:
+  - A single row index (if only one row plays that role).
+  - A list of row indexes (if multiple rows play that role).
+
+By default, each distinct role in a representation forms a "participant"—a set of rows or a single row that contribute to the rule violation or satisfaction in a specific way.
+    - If there are multiple roles, then the participants of different roles together explain why the rule is violated or satisfied.
+    - If there is only one role, then the rows assigned to that role collectively form a participant that explains how the rule is violated or satisfied.
+
+Within each group, all participants together explain why the rule is violated or satisfied in that group.
 
 ## Sample Output Structure Reference:
 
@@ -121,7 +167,7 @@ return {{
     }}
 }}
 
-# Example 2: Unique Key Constraint Rule
+# Example 2: Unique Key Constraint Rule (Unconditional)
 return {{
     "support": support_value,
     "confidence": confidence_value,
@@ -137,7 +183,10 @@ return {{
     }}
 }}
 
-# Example 3: Functional Dependency Rule
+# Example 3: Functional Dependency Rule (Uncoditional)
+If two rows have the same values for key columns (e.g., "department", "employee_id"),  
+then they must have the same value for a dependent column (e.g., "employee_name"). 
+
 return {{
     "support": support_value,
     "confidence": confidence_value,
@@ -153,44 +202,61 @@ return {{
         }}
     }}
 }}
+
+Each group key represents a unique combination of key columns (`department`, `employee_id`), where the rule ensures that the dependent column (`employee_name`) must have consistent values.
 ```
 
 ## Your Analysis
 
-Based on the rule description and DataFrame sample, provide:
-1. Rule Type Classification: Single-row, multi-row, or group-validation rule
-2. Output Format Specification: Detailed structure of the output including how to format the support, confidence, satisfactions, and violations
-3. Calculation Guidance: How to calculate support and confidence for this specific rule
+Based on the rule description and DataFrame sample, provide a detailed analysis of the format needed for implementing this rule.
 
-Structure your response with clear headings:
-    
-# Support Calculation
-[Explanation of how support should be calculated]
+I want you to return your analysis as a JSON object with the following structure:
 
-# Confidence Calculation
-[Explanation of how confidence should be calculated]
+```json
+{{
+    "support_calculation": "Detailed explanation of how support should be calculated",
+    "confidence_calculation": "Detailed explanation of how confidence should be calculated",
+    "satisfactions_format": "Detailed explanation of the structure for satisfactions with example output",
+    "violations_format": "Detailed explanation of the structure for violations with example output"
+}}
+```
 
-# Satisfactions Format
-[Explanation of the structure for satisfactions with examples]
-
-# Violations Format
-[Explanation of the structure for violations with examples]
-
-IMPORTANT: Your response should focus only on the format and structure, not the implementation details or code generation.
+IMPORTANT: 
+- Make sure to use the exact column names from the DataFrame sample in your explanations
+- The output format explanations should be detailed and clear with specific examples tailored to this rule
+- For multi-row rules, clearly specify how groups should be formed and what keys should be used
+- Make sure you check if the rule is conditional or unconditional and adjust the explanations accordingly. Especially mention that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
 """
+        
+        # Create a JSON output parser
+        json_parser = JsonOutputParser()
         
         chain = self._create_chain(
             template=template,
-            parse_with_prompt=False
+            parser=json_parser
         )
         
         result = chain.invoke({
             "rule_description": rule_description,
-            "dataframe_info": dataframe_info
+            "dataframe_info": dataframe_info or ""
         })
         
+        # Convert the output format to a text representation for backward compatibility
+        rule_format = f"""# Support Calculation
+{result.get('support_calculation', '')}
+
+# Confidence Calculation
+{result.get('confidence_calculation', '')}
+
+# Satisfactions Format
+{result.get('satisfactions_format', '')}
+
+# Violations Format
+{result.get('violations_format', '')}
+"""
+                
         return {
-            "rule_format": result.get("content", {}),
+            "rule_format": rule_format,
             "metadata": {
                 "agent": self.name,
                 "rule_description": rule_description

@@ -40,7 +40,7 @@ class BaseAgent(ABC):
             completion_content = chain_output["completion"].content
             
             # For JSON parsers, clean the output first
-            if isinstance(parser, JsonOutputParser) or isinstance(parser, RetryWithErrorOutputParser):
+            if isinstance(parser, JsonOutputParser):
                 completion_content = clean_json_output(completion_content)
             elif not parse_with_prompt:
                 return {"content": completion_content}

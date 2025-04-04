@@ -6,8 +6,6 @@ psutil>=5.9.0
 matplotlib>=3.7.0
 numpy>=1.24.0
 pandas>=2.0.0
-line_profiler>=4.0.0
-memory-profiler>=0.61.0
 regex>=2023.0.0
 pydantic>=2.0.0
 pytest>=7.0.0
@@ -16,4 +14,6 @@ python-dotenv>=1.0.0
 langchain-community>=0.3.19
 rank_bm25>=0.2.2
 scalene
-langchain-google-vertexai
+langchain-huggingface
+googlesearch-python
+beautifulsoup4

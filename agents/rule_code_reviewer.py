@@ -3,20 +3,8 @@ import re
 
 class RuleCodeReviewer(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert code reviewing agent specialized in analyzing DataFrame rule evaluation functions.
+        system_prompt = """You are an expert code reviewing agent specialized in analyzing DataFrame rule evaluation functions on their efficiency.
         Your goal is to thoroughly assess code quality, identify potential improvements, and determine if further optimization is worthwhile.
-        
-        You understand that rule evaluation requires:
-        1. Compute Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
-        2. Compute Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
-        3. Efficiently identifying violating or satisfying rows
-        4. Returning a tuple of (support, confidence, satisfactions, violations)
-        
-        You evaluate code based on:
-        1. Correctness - Does the function correctly implement the rule logic?
-        2. Efficiency - Is the implementation using optimal pandas/numpy techniques?
-        3. Readability - Is the code well-structured and appropriately commented?
-        4. Robustness - Does it handle edge cases like missing values properly?
         
         Keep in mind that the dataframes can be large and performance is critical.
         
@@ -33,15 +21,14 @@ class RuleCodeReviewer(BaseAgent):
         previous_code = input_data.get("previous_code")
         test_result = input_data.get("test_result", {})
         dataframe_info = input_data.get("dataframe_info", "")
+        profiling_data = input_data.get("profiling_data", {})
         
-        return self._review_code(code, previous_code, problem_description, test_result, dataframe_info)
+        return self._review_code(code, previous_code, problem_description, test_result, dataframe_info, profiling_data)
     
-    def _review_code(self, code, previous_code, problem_description, test_result, dataframe_info):
+    def _review_code(self, code, previous_code, problem_description, test_result, dataframe_info, profiling_data):
         
         # Extract metrics from test result
-        execution_time = test_result.get("execution_time", "N/A")
-        memory_usage = test_result.get("memory_usage", "N/A")
-        function_results = test_result.get("function_results", {})
+        line_profiling = profiling_data.get("line_profiling", [])
         
         # prev_code = previous_code.replace('{', '{{').replace('}', '}}') if previous_code else "No previous version available"
         """
@@ -54,27 +41,20 @@ class RuleCodeReviewer(BaseAgent):
         """Review the code and provide recommendations for improvement"""
         template = f"""
 # Problem Description
+Thoroughly review this DataFrame rule evaluation function and answer if the code is efficiently implemented? Is it using optimal pandas/numpy techniques? Are there any performance bottlenecks or inefficient operations that could be improved?
+
 {problem_description}
 
 # DataFrame Information
-{dataframe_info}
+{dataframe_info.replace('{', '{{').replace('}', '}}')}
 
 # Current Code
 ```python
 {code.replace('{', '{{').replace('}', '}}')}
 ```
 
-# Performance Metrics
-- Execution Time: {execution_time}
-- Memory Usage: {memory_usage}
-
-Thoroughly review this DataFrame rule evaluation function and answer the following questions:
-
-1. Is the code correct? Does it properly implement the rule logic?
-2. Is the code efficiently implemented? Is it using optimal pandas/numpy techniques?
-3. Are there any performance bottlenecks or inefficient operations that could be improved?
-4. Is the code clear, well-structured, and appropriately commented?
-5. Does it handle edge cases like missing values properly?
+# Line-by-Line Profiling:
+{line_profiling}
 
 {common_mistakes_prompt()}
 
@@ -96,19 +76,13 @@ IMPROVEMENT_RECOMMENDATIONS:
 OPTIMIZATION_POTENTIAL: [High/Medium/Low/None]
 
 FINAL_RECOMMENDATION: [CONTINUE OPTIMIZATION/TERMINATE OPTIMIZATION]
-
-REASONING:
-[Your reasoning for the final recommendation]
 """
         
         
         chain = self._create_chain(template=template, parse_with_prompt=False)
-        
         result = chain.invoke({
             "problem_description": problem_description,
-            "dataframe_info": dataframe_info,
-            "execution_time": execution_time,
-            "memory_usage": memory_usage
+            "dataframe_info": dataframe_info
         })
         
         # Parse the review result to extract structured information
@@ -141,10 +115,25 @@ REASONING:
         recommendations_match = re.search(r'IMPROVEMENT_RECOMMENDATIONS:\s*(.*?)(?:\n\s*OPTIMIZATION_POTENTIAL:|\Z)', review_text, re.DOTALL)
         if recommendations_match:
             recommendations_text = recommendations_match.group(1).strip()
-            # Split by bullet points
-            recommendations = [rec.strip()[2:].strip() for rec in recommendations_text.split('\n-') if rec.strip()]
-            if recommendations and not recommendations[0].startswith('-'):
-                recommendations[0] = recommendations[0][1:].strip() if recommendations[0].startswith('-') else recommendations[0]
+            # Split by bullet points and properly handle each recommendation
+            raw_recommendations = recommendations_text.split('\n-')
+            recommendations = []
+            
+            for i, rec in enumerate(raw_recommendations):
+                if not rec.strip():
+                    continue
+                    
+                # Handle the first item which might not start with a dash
+                if i == 0 and not rec.strip().startswith('-'):
+                    recommendations.append(rec.strip())
+                else:
+                    recommendations.append(rec.strip())
+            
+            # Clean up any leading dashes
+            recommendations = [rec[1:].strip() if rec.startswith('-') else rec for rec in recommendations]
+            # Filter out empty recommendations
+            recommendations = [rec for rec in recommendations if rec]
+            
             analysis["improvement_recommendations"] = recommendations
         
         # Extract optimization potential
@@ -156,10 +145,5 @@ REASONING:
         recommendation_match = re.search(r'FINAL_RECOMMENDATION:\s*(CONTINUE OPTIMIZATION|TERMINATE OPTIMIZATION)', review_text)
         if recommendation_match:
             analysis["final_recommendation"] = recommendation_match.group(1)
-        
-        # Extract reasoning
-        reasoning_match = re.search(r'REASONING:\s*(.*?)(?:\Z)', review_text, re.DOTALL)
-        if reasoning_match:
-            analysis["reasoning"] = reasoning_match.group(1).strip()
         
         return analysis

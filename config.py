@@ -16,11 +16,11 @@ class Config:
     HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA", "0.5"))  # Weight between sparse and dense retrieval
     
     # Agent Configuration
-    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "7"))
     AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
     
     # Evaluation Configuration
-    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "10"))
+    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "7"))
     MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "1024"))
     
     # Paths
@@ -36,8 +36,7 @@ class Config:
     RETRIEVAL_TOP_K = 5
     
     # Add to your config file
-    PROFILE_INTERVAL = 4  # Scalene profile sampling interval in seconds
-    MAX_PROFILING_TIME = 5.0  # Maximum time for profiling in seconds
+    PROFILE_INTERVAL = 3  # Scalene profile sampling interval in seconds
     ADAPTIVE_SAMPLING = True  # Enable adaptive sample size reduction
     MIN_SAMPLE_SIZE = 100  # Minimum sample size to use when reducing
     
@@ -60,5 +59,46 @@ class Config:
             "type": "web",
             "path": "https://pandas.pydata.org/pandas-docs/stable/user_guide/cookbook.html",
             "description": "Pandas cookbook with efficient patterns"
+        }
+    ]
+    
+    # Add to your Config class
+    WEB_SEARCH_ENABLED = True
+    WEB_SEARCH_MAX_RESULTS = 10
+    WEB_SEARCH_PATTERN_TYPES = ["performance", "vectorization", "memory"]
+    WEB_SEARCH_TRUSTED_DOMAINS = [
+        "pandas.pydata.org",
+        "stackoverflow.com", 
+        "github.com",
+        "towardsdatascience.com",
+        "medium.com",
+        "kaggle.com"
+    ]
+    
+    # Additional static retrieval sources
+    ADDITIONAL_RETRIEVAL_SOURCES = [
+        {
+            "name": "pandas_performance_blog",
+            "type": "web",
+            "path": "https://pythonspeed.com/articles/pandas-vectorization/",
+            "description": "Comprehensive guide on pandas vectorization"
+        },
+        {
+            "name": "pandas_scaling_blog",
+            "type": "web",
+            "path": "https://towardsdatascience.com/how-to-make-your-pandas-loop-71-803-times-faster-805030df4f06",
+            "description": "Techniques for scaling pandas operations"
+        },
+        {
+            "name": "stackoverflow_pandas_performance",
+            "type": "web",
+            "path": "https://stackoverflow.com/questions/23361964/why-does-pandas-iterrows-have-such-poor-performance",
+            "description": "StackOverflow discussion on pandas iteration performance"
+        },
+        {
+            "name": "pandas_memory_optimization",
+            "type": "web",
+            "path": "https://www.dataquest.io/blog/pandas-big-data/",
+            "description": "Memory optimization for pandas with large datasets"
         }
     ]

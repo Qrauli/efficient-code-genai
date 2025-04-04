@@ -8,6 +8,30 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.rule_orchestrator import RuleOrchestrator
 from config import Config
+import json
+
+def convert_to_serializable(obj):
+    """Convert obj to a JSON serializable object."""
+    if isinstance(obj, (np.integer, np.int_, np.intc, np.intp, np.int8,
+                        np.int16, np.int32, np.int64, np.uint8,
+                        np.uint16, np.uint32, np.uint64)):
+        return int(obj)
+    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.bool_)):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, set):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {convert_to_serializable(k): convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_to_serializable(item) for item in obj)
+    else:
+        return obj
 
 def main():
     """Example usage of the RuleOrchestrator for generating rule evaluation functions"""
@@ -21,30 +45,32 @@ def main():
     
     # Example rule definition
     rule_description = """
-    Rule: AreaCode determines City and State
+    Rule: AreaCode(String) determines City(String) and State(String)
     """
     
     # Process the rule (using a sample for initial development)
-    result = orchestrator.process_rule(rule_description, df, sample_size=100000)
+    result = orchestrator.process_rule(rule_description, df, sample_size=100000, use_test_cases=True)
     
     # Print results
     print("\nRule Description:")
     print(rule_description)
     print("\nGenerated Function:")
     print(result["code"])  # Changed from "final_code" to "code"
-    print("\nRule Evaluation Results:")
+    # print("\nRule Evaluation Results:")
     
     # Extract metrics from final_metrics
     final_metrics = result.get("final_metrics", {})
-    print(f"Support: {final_metrics.get('support')}")
-    print(f"Confidence: {final_metrics.get('confidence')}")
+    # print(f"Support: {final_metrics.get('support')}")
+    # print(f"Confidence: {final_metrics.get('confidence')}")
     print("\nPerformance Summary:")
     print(result["summary"])
     
-    import json
+    # Convert result to JSON serializable format
+    serializable_result = convert_to_serializable(result)
+    
     # Save whole result for further analysis
     with open("../results/test_run/rule_evaluation_result.json", "w") as f:
-        json.dump(result, f)  
+        json.dump(serializable_result, f)
         
 if __name__ == "__main__":
     main()

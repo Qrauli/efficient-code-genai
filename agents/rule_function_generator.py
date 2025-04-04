@@ -10,10 +10,10 @@ class RuleFunctionGenerator(BaseAgent):
     def __init__(self, config):
         system_prompt = """You are an expert code generation agent specialized in creating efficient functions to evaluate rules on pandas DataFrames.
         Your goal is to generate high-quality, optimized code that evaluates rule satisfaction, calculates metrics like support and confidence, and efficiently identifies satisfying or violating rows. 
-        Focus on vectorized operations and pandas-native functions for best performance."""
+        Your primary task still is to produce correct code, so focus on correctness for now, but you should also consider the performance of the code you produce."""
         super().__init__(config, "RuleFunctionGenerator", system_prompt)
     
-    def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None):
+    def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None, test_case_guidance=None):
         """Generate a function that evaluates the given rule on a pandas DataFrame
         
         Args:
@@ -45,27 +45,22 @@ Based on the rule analysis, implement the following output structure:
 # Rule Description
 {rule_description}
 
+# Task
+Generate a Python function named `{function_name}` that takes a pandas DataFrame as input and evaluates the rule described above.
+
+- The function should return a dictionary with the following keys:
+    - `support`: the support value   
+    - `confidence`: the confidence value
+    - `satisfactions`: presentations of units that satisfy the rule
+    - `violations`: presentations of units that violate the rule
+
 # DataFrame Sample
 {df_sample}
 
 {context or ""}
 
-# Task
-Generate a Python function named `{function_name}` that takes a pandas DataFrame as input and evaluates the rule described above.
-
-- The function should compute:
-       - Support: The proportion of rows where the body of the rule is satisfied. If the rule has no body, support is 1.
-         Support = (Number of rows where the entire rule is satisfied) / (Total number of rows in the dataset) 
-       
-       - Confidence: The proportion of rows where both the body and head of the rule are satisfied, out of the rows where the body is satisfied.
-         Confidence = (Number of rows where the entire rule is satisfied) / (Number of rows where the body of the rule is satisfied)
-    
-    - The function should return:
-        - `support`: the support value   
-        - `confidence`: the confidence value.
-        - `satisfactions`, `violations` : presentations of units that satisfy or violate the rule. This presentation should utilize the index of the dataframe to represent rows. 
-
 {escaped_format_guidance}
+{test_case_guidance.replace("{", "{{").replace("}", "}}") or ""}
 
 Prioritize:
 - Vectorized operations over loops
@@ -83,6 +78,7 @@ IMPORTANT:
 - If the rule is not about checking None values, please exclude all rows where any of the relevant columns is None, using df.dropna(subset=relevant_columns), before analysis.
 - Be careful when you write the code of generating the inner dictionaries in the violations, do not replace the existing entries already contained in the inner dictionary. 
 - Ensure that each key used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, always includes the column name when a column value is part of the key. For example, valid keys can be ("A", 100) or (("A", 100), ("B", 200)), but not (100) or (100, 200).
+- Make sure that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
 
 {common_mistakes_prompt()}
 """
@@ -93,7 +89,6 @@ IMPORTANT:
         )
         
         result = chain.invoke({
-            "rule_description": rule_description,
             "df_sample": df_sample,
             "function_name": function_name,
             "context": context
@@ -108,7 +103,7 @@ IMPORTANT:
             }
         }
     
-    def test_function(self, function_code, dataframe, function_name="execute_rule"):
+    def execute_and_profile_rule(self, function_code, dataframe, function_name="execute_rule"):
         """Test the function code against a dataframe while also collecting performance metrics"""
         
         import tempfile
@@ -124,11 +119,11 @@ IMPORTANT:
         test_wrapper_code = f"""
 {function_code}
 
+# Execute the function
+import traceback
 import pandas as pd
 import json
-import traceback
 
-# Execute the function
 try:
     # Create a DataFrame copy to avoid side effects
     df = pd.read_pickle("{escaped_path}")
@@ -136,21 +131,20 @@ try:
     # Run the function and capture results
     result = {function_name}(df)
     
-    # Extract results
-    if isinstance(result, tuple) and len(result) >= 4:
-        support, confidence, satisfactions, violations = result        
+    # Extract results - handling dictionary return format
+    if isinstance(result, dict) and all(k in result for k in ['support', 'confidence', 'satisfactions', 'violations']):
         # Create a proper JSON object and print it using json.dumps
         result_dict = {{
-            "support": support,
-            "confidence": confidence 
-            # "satisfactions": satisfactions,
-            # "violations": violations
+            "support": result.get('support'),
+            "confidence": result.get('confidence')
+            # "satisfactions": result.get('satisfactions'),
+            # "violations": result.get('violations')
         }}
         print("FUNCTION_RESULT: " + json.dumps(result_dict))
         success = True
     else:
         success = False
-        print("ERROR: Function did not return the expected tuple format")
+        print("ERROR: Function did not return expected dictionary format with required keys")
 except Exception as e:
     print("ERROR:", str(e))
     print("TRACEBACK:", traceback.format_exc())
@@ -206,7 +200,7 @@ except Exception as e:
                 for file_data in profile_data.get("files", {}).values():
                     execution_time = file_data.get("total_cpu_seconds", None)
                     break
-            
+                
             # Combine everything into a single comprehensive result
             return {
                 "success": success and profile_result.get("success", False),
@@ -220,3 +214,4 @@ except Exception as e:
             # Clean up the temporary file
             if os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
+

@@ -159,15 +159,15 @@ def profile_with_scalene(code, config, test_input=None):
     
     try:
         # Set a shorter profiling interval for faster results with large datasets
-        profile_interval = config.PROFILE_INTERVAL if hasattr(config, 'PROFILE_INTERVAL') else 4
+        profile_interval = config.PROFILE_INTERVAL
         
         # Command to execute Scalene with JSON output and optimized settings
         cmd = [
-            'python3', '-m', 'scalene',
+            'python3', '-W', 'ignore', 
+            '-m', 'scalene',
             '--json', '--outfile', output_json_path,
             '--cpu', '--memory',
             '--profile-interval', str(profile_interval),  # Faster sampling
-            '--reduced-profile',  # Lighter profiling for faster execution
             temp_file_path
         ]
         
@@ -180,26 +180,32 @@ def profile_with_scalene(code, config, test_input=None):
                 stdin = open(input_file_path, 'r')
         
         # Use a shorter timeout for profiling than for regular execution
-        profiling_timeout = min(5.0, config.TIMEOUT_SECONDS) if hasattr(config, 'TIMEOUT_SECONDS') else 5.0
+        profiling_timeout = config.TIMEOUT_SECONDS
+        error = ""
+        success = True
+        # Measure execution time
+        start_time = time.time()
         
-        # Execute Scalene profiler
+        # Execute the code as a subprocess
         process = subprocess.Popen(
             cmd,
             stdin=stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
-        # Wait for the process to complete with timeout
-        try:
-            stdout, stderr = process.communicate(timeout=profiling_timeout)
-            output = stdout.decode()
-            error = stderr.decode()
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-            output = stdout.decode()
-            error = stderr.decode() + f"\nProfiling timed out after {profiling_timeout} seconds"
+                
+        while process.poll() is None:
+            try:
+                # Check if timeout exceeded
+                if time.time() - start_time > profiling_timeout:
+                    process.kill()
+                    error = f"\nProfiling timed out after {profiling_timeout} seconds"
+                    success = False
+                    break
+                time.sleep(0.01)  
+            except:
+                # Process may have ended
+                break
         
         # Load the JSON profile if it exists
         profile_data = {}
@@ -210,10 +216,10 @@ def profile_with_scalene(code, config, test_input=None):
                     profile_data = json.load(f)
                 except json.JSONDecodeError:
                     profile_data = {"error": "Failed to parse Scalene output JSON"}
-        
+
         return {
             "profile_data": profile_data,
-            "output": output,
+            "output": process.stdout.read().decode() if "timed out" not in error.lower() else "",
             "error": error,
             "success": process.returncode == 0,
             "timed_out": "timed out" in error.lower()

@@ -1,0 +1,15 @@
+test/improve retrieval
+check all outputs/inputs especially profiling
+~ integrate with evaluation
+change evaluation
+improve prompts/maybe template code
+~ add correctness check based on satisfactions/violations instead of support/confidence
+add parallel routine
+check memory profiling
+incoperate structured output call
+add timeout to function call itself
+make scalene usage faster, maybe programatic usage
+maybe incoperate warnings into feedback
+exclude import pandas from profiling
+use austin profiler
+...
