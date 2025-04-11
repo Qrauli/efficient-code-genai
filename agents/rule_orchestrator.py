@@ -1,25 +1,27 @@
 from .base_agent import _create_dataframe_sample
-from .orchestrator import Orchestrator
 from .rule_function_generator import RuleFunctionGenerator
 from .rule_code_optimizer import RuleCodeOptimizer
 from .rule_code_tester import RuleCodeTester
 from .rule_code_reviewer import RuleCodeReviewer
-from .rule_format_analyzer import RuleFormatAnalyzer  # Add this import
+from .rule_format_analyzer import RuleFormatAnalyzer
 from .rule_test_case_generator import RuleTestCaseGenerator
+from .rule_test_case_reviewer import RuleTestCaseReviewer
 import pandas as pd
 import os
 from utils.context_retrieval import ContextRetriever, RetrievalSource
 
-class RuleOrchestrator(Orchestrator):
+class RuleOrchestrator:
     def __init__(self, config, use_retrieval=None):
-        super().__init__(config)
         self.rule_function_generator = RuleFunctionGenerator(config)
         self.code_optimizer = RuleCodeOptimizer(config)
         self.code_tester = RuleCodeTester(config)
         self.code_reviewer = RuleCodeReviewer(config)
-        self.rule_format_analyzer = RuleFormatAnalyzer(config)  # Initialize the format analyzer
+        self.rule_format_analyzer = RuleFormatAnalyzer(config)
         self.test_case_generator = RuleTestCaseGenerator(config)
+        self.test_case_reviewer = RuleTestCaseReviewer(config)
         
+        self.config = config
+        self.max_iterations = config.MAX_ITERATIONS
         # Initialize retrieval if enabled
         self.use_retrieval = use_retrieval if use_retrieval is not None else config.ENABLE_RETRIEVAL
         self.retriever = None
@@ -36,21 +38,18 @@ class RuleOrchestrator(Orchestrator):
             vectorstore_path = os.path.join(self.config.RETRIEVAL_STORAGE_PATH, "vectorstore")
             
             if os.path.exists(vectorstore_path) and os.listdir(vectorstore_path):
-                self.logger.info("Loading existing retrieval system...")
                 self.retriever.initialize(force_reload=False)
             else:
-                self.logger.info("Building comprehensive retrieval system...")
                 include_web_search = getattr(self.config, 'WEB_SEARCH_ENABLED', False)
                 self.retriever.initialize_comprehensive_retrieval(include_web_search=include_web_search)
                 
-            self.logger.info(f"Retrieval system initialized with {self.retriever.vectorstore._collection.count() if self.retriever.vectorstore else 0} documents")
         except Exception as e:
-            self.logger.error(f"Error initializing retriever: {str(e)}")
             # Create a basic retriever as fallback
             self.retriever = ContextRetriever(self.config)
             self.retriever.initialize()
     
-    def process_rule(self, rule_description, dataframe: pd.DataFrame, rule_id=None, sample_size=None, use_test_cases=False):
+    def process_rule(self, rule_description, dataframe: pd.DataFrame, rule_id=None, sample_size=None, use_profiling=False, 
+                     max_correction_attempts=3, max_restarts=3, test_percentage=0.5):
         """Process a rule description to generate and optimize a function for DataFrame rule evaluation
         
         Args:
@@ -58,42 +57,55 @@ class RuleOrchestrator(Orchestrator):
             dataframe (pd.DataFrame): The DataFrame to evaluate the rule on
             rule_id (str, optional): Identifier for the rule
             sample_size (int, optional): Number of rows to sample for development
-            use_test_cases (bool, optional): Whether to generate and use test cases (default: True)
+            use_profiling (bool, optional): Whether to use profiling during optimization (default: True)
+            max_correction_attempts (int, optional): Maximum number of attempts to correct code before restarting (default: 3)
+            max_restarts (int, optional): Maximum number of full workflow restarts (default: 2)
             
         Returns:
             dict: Generated code, execution history, and metadata
         """
         try:
             results_history = []
-            rule_description = rule_description.replace("{", "{{").replace("}", "}}")
             
             # Use a default rule_id if not provided
             function_name = f"execute_rule{rule_id}" if rule_id is not None else "execute_rule"
             
-            # Use a sample of the dataframe for development if specified
-            working_df = dataframe
-            initial_sample_size = sample_size or min(1000, len(dataframe))
-            current_sample_size = initial_sample_size
+            # Restart counter
+            restart_count = 0
             
-            if current_sample_size and len(dataframe) > current_sample_size:
-                working_df = dataframe.sample(current_sample_size, random_state=42)
-            
-            # Create dataframe info once for reuse
-            dataframe_info = _create_dataframe_sample(working_df)
-            
-            # Phase 0: Analyze rule format and determine output structure
-            format_analysis_result = self.rule_format_analyzer.process(
-                rule_description, 
-                dataframe_info=dataframe_info
-            )
-            
-            # Get the rule format as text directly from the result
-            rule_format = format_analysis_result.get("rule_format", "")
-            results_history.append({"step": "format_analysis", "result": format_analysis_result})
+            while restart_count <= max_restarts:  # Allow initial run + max_restarts
+                if restart_count > 0:
+                    # Log the restart
+                    results_history.append({
+                        "step": f"workflow_restart_{restart_count}",
+                        "result": {
+                            "reason": "Multiple correction attempts failed to fix the code",
+                            "previous_attempts": correction_attempt_count if 'correction_attempt_count' in locals() else 0
+                        }
+                    })
+                
+                # Use a sample of the dataframe for development if specified
+                working_df = dataframe
+                initial_sample_size = sample_size
+                current_sample_size = initial_sample_size
+                
+                if current_sample_size and len(dataframe) > current_sample_size:
+                    working_df = dataframe.sample(current_sample_size, random_state=42)
+                
+                # Create dataframe info once for reuse
+                dataframe_info = _create_dataframe_sample(working_df)
+                
+                # Phase 0: Analyze rule format and determine output structure
+                format_analysis_result = self.rule_format_analyzer.process(
+                    rule_description, 
+                    dataframe_info=dataframe_info
+                )
+                
+                # Get the rule format as text directly from the result
+                rule_format = format_analysis_result.get("rule_format", "")
+                results_history.append({"step": "format_analysis", "result": format_analysis_result})
 
-            # Phase 0.5: Generate test cases if enabled
-            test_cases = []
-            if use_test_cases:
+                # Phase 0.5: Generate test cases - now mandatory
                 test_case_result = self.test_case_generator.process(
                     rule_description,
                     rule_format,
@@ -101,61 +113,60 @@ class RuleOrchestrator(Orchestrator):
                 )
                 test_cases = test_case_result.get("test_cases", [])
                 results_history.append({"step": "test_case_generation", "result": test_case_result})
-            
-            # Phase 1: Generate initial function with retrieval context, format specifications and test case
-            generator_context = self._get_relevant_context(
-                query=f"pandas dataframe function to evaluate rule: {rule_description}",
-                source_types=["documentation", "code_snippet"]
-            )
+                
+                # Phase 1: Generate initial function with retrieval context, format specifications and test case
+                # generator_context = self._get_relevant_context(
+                #    query=f"pandas dataframe function to evaluate rule: {rule_description}",
+                #    source_types=["documentation", "code_snippet"]
+                #)
+                generator_context = ""
+                # Add test case explanation to the generator input if available
+                test_case_guidance = ""
+                if test_cases:
+                    # Include information about the first test case in the guidance
+                    first_test_case = test_cases[0] if test_cases else {}
+                    test_case_guidance = f"""
+# Test Case Information
+Here is a test case that should pass with your implementation:
 
-            # Add test case explanation to the generator input if available
-            test_case_guidance = ""
-            if use_test_cases and test_cases:
-                # Include information about the first test case in the guidance
-                first_test_case = test_cases[0] if test_cases else {}
-                test_case_guidance = f"""
-            # Test Case Information
-            Here is a test case that should pass with your implementation:
+Sample DataFrame:
+```python
+{first_test_case.get('dataframe', {})}
+```
 
-            Sample DataFrame:
-            ```python
-            {first_test_case.get('dataframe', {})}
-            ```
+Expected Output:
+- Support: {first_test_case.get('expected_output', {}).get('support')}
+- Confidence: {first_test_case.get('expected_output', {}).get('confidence')}
+- Satisfactions: {first_test_case.get('expected_output', {}).get('satisfactions_str')}
+- Violations: {first_test_case.get('expected_output', {}).get('violations_str')}
 
-            Expected Output:
-            - Support: {first_test_case.get('expected_output', {}).get('support')}
-            - Confidence: {first_test_case.get('expected_output', {}).get('confidence')}
-            - Satisfactions: {first_test_case.get('expected_output', {}).get('satisfactions_str')}
-            - Violations: {first_test_case.get('expected_output', {}).get('violations_str')}
+Explanation:
+{first_test_case.get('explanation', '')}
+"""
 
-            Explanation:
-            {first_test_case.get('explanation', '')}
-            """
-
-            generator_result = self.rule_function_generator.process(
-                rule_description, 
-                df_sample=dataframe_info,
-                function_name=function_name,
-                context=generator_context,
-                rule_format=rule_format,
-                test_case_guidance=test_case_guidance  # Add this parameter
-            )
-            
-            current_code = initial_code = generator_result["code"]
-            results_history.append({"step": "generation", "result": generator_result})
-            
-            # Phase 2: Optimization loop
-            iterations = 0
-            previous_code = None
-            should_continue = True
-            test_case_result = None
-            profiling_result = None
-            testcase_correction_attempts = 0  # Track testcase correction attempts
-            skip_testcase_validation = False  # Flag to skip testcase validation after too many failures
-            
-            while iterations < self.max_iterations and should_continue:
-                # Step 1: Test with test case if enabled and available
-                if use_test_cases and test_cases and not skip_testcase_validation:
+                generator_result = self.rule_function_generator.process(
+                    rule_description, 
+                    df_sample=dataframe_info,
+                    function_name=function_name,
+                    context=generator_context,
+                    rule_format=rule_format,
+                    test_case_guidance=test_case_guidance
+                )
+                
+                current_code = initial_code = generator_result["code"]
+                results_history.append({"step": "generation", "result": generator_result})
+                
+                # Phase 2: Optimization loop
+                iterations = 0
+                last_working_code = None
+                should_continue = True
+                test_case_result = None
+                profiling_result = None
+                # Counter for code correction attempts
+                correction_attempt_count = 0
+                
+                while iterations < self.max_iterations and should_continue:
+                    # Step 1: Test with test cases (now mandatory)
                     test_case_result = self.code_tester.test_function_with_testcases(
                         current_code, 
                         test_cases, 
@@ -163,208 +174,262 @@ class RuleOrchestrator(Orchestrator):
                     )
                     results_history.append({"step": f"refinement_{iterations}_test_case", "result": test_case_result})
                     
-                    # If any test case fails, attempt to fix the code
+                    # On final restart, check if we should consider partial success
+                    # if restart_count == max_restarts:
+                    test_results = test_case_result.get("test_results", [])
+                    passed_tests = sum(1 for tr in test_results if tr.get("success", False))
+                    total_tests = len(test_results)
+                    success_rate = passed_tests / total_tests if total_tests > 0 else 0
+                    # Consider it a partial success if at least half of tests pass
+                    partial_success = success_rate >= test_percentage
+                    test_case_result["success"] = partial_success
+                    
+                    # Collect warnings from test case execution
+                    warnings = test_case_result.get("warnings", [])
+                    
+                    # If any test case fails, first review the code and test cases
                     if not test_case_result.get("success", False):
-                        # Track correction attempts
-                        testcase_correction_attempts += 1
-                        
-                        # Extract relevant test results to pass to correction method
+                        correction_attempt_count += 1
+
+                        # Extract relevant test results to pass to reviewer
                         test_results = test_case_result.get("test_results", [])
-                        failing_tests = [tr for tr in test_results if not tr.get("success", False)]
                         
-                        corrected_result = self.code_tester.correct_code(
+                        # Review the code and test cases to determine the issue
+                        review_result = self.test_case_reviewer.process(
+                            rule_description=rule_description,
                             code=current_code,
-                            problem_description=f"DataFrame rule evaluation function for: {rule_description}",
-                            test_results=failing_tests,  # Pass only failing tests for correction
-                            dataframe_info=dataframe_info,
-                            function_name=function_name,
-                            rule_format=rule_format
+                            test_results=test_results,
+                            rule_format=rule_format,
+                            dataframe_info=dataframe_info
                         )
-                        results_history.append({"step": f"refinement_{iterations}_correction", "result": corrected_result})
+                        results_history.append({"step": f"refinement_{iterations}_test_review", "result": review_result})
                         
-                        # Update code and retry test case in next iteration
-                        current_code = corrected_result.get("corrected_code", current_code)
+                        # Extract the analysis from the review result
+                        analysis = review_result.get("analysis", {})
                         
-                        if testcase_correction_attempts >= 2:
-                            skip_testcase_validation = True
-                   
+                        # Check if there are issues with the code or test cases
+                        code_fix_approach = analysis.get("code_fix_approach", [])
+                        corrected_test_cases = analysis.get("corrected_test_cases", [])
+                        recommendations = analysis.get("recommendations", {})
+                        
+                        # Determine if we should fix the code, the test cases, or both
+                        fix_code = recommendations.get("fix_code", True)
+                        fix_test_cases = recommendations.get("fix_test_cases", False)
+                        
+                        # Case 1: If the test cases need correction
+                        if fix_test_cases and corrected_test_cases:
+                            
+                            for correction in corrected_test_cases:
+                                idx = correction.get("test_case_index", -1)
+                                if 0 <= idx < len(test_cases):
+                                    # Update the expected output with corrected values
+                                    test_cases[idx]["expected_output"].update(correction.get("corrected_values", {}))
+                                    # Add explanation of correction to the test case
+                                    test_cases[idx]["explanation"] = correction.get('explanation', 'Test case values were corrected.')
+                            
+                            # Re-run test case validation with corrected test cases
+                            test_case_result = self.code_tester.test_function_with_testcases(
+                                current_code, 
+                                test_cases, 
+                                function_name=function_name
+                            )
+                            results_history.append({"step": f"refinement_{iterations}_test_case_corrected", "result": test_case_result})
+                        
+                        # Case 2: If the code needs to be fixed
+                        if fix_code and not test_case_result.get("success", False):
+                            
+                            # Construct detailed guidance for the code corrector
+                            correction_guidance = ""
+                            if code_fix_approach:
+                                correction_guidance = "The test case review identified the following code problems and approaches to fix them:\n\n"
+                                correction_guidance += f"\nRecommended approach: {code_fix_approach}"
+                            
+                            # Extract failing tests
+                            test_results = test_case_result.get("test_results", [])
+                            failing_tests = [tr for tr in test_results if not tr.get("success", False)]
+                            
+                            corrected_result = self.code_tester.correct_code(
+                                code=current_code,
+                                problem_description=f"DataFrame rule evaluation function for: {rule_description}\n\n{correction_guidance}",
+                                test_results=failing_tests,
+                                dataframe_info=dataframe_info,
+                                function_name=function_name,
+                                rule_format=rule_format
+                            )
+                            results_history.append({"step": f"refinement_{iterations}_correction_{correction_attempt_count}", "result": corrected_result})
+                            
+                            # Update code and retry test case in next iteration
+                            current_code = corrected_result.get("corrected_code", current_code)
+                            
+                        # Check if we need to restart the workflow due to too many correction attempts
+                        if correction_attempt_count >= max_correction_attempts and last_working_code is None:
+                            restart_count += 1
+                            break
+                       
                         iterations += 1
                         continue
-                
-                # Step 2: Run profiling (always do this regardless of test cases)
-                profiling_result = self.rule_function_generator.execute_and_profile_rule(current_code, working_df, function_name=function_name)
-                
-                test_log = profiling_result.copy()
-                if "function_results" in test_log: del test_log["function_results"]
-                if "profile_data" in test_log: del test_log["profile_data"]
-                results_history.append({"step": f"refinement_{iterations}_profiling", "result": test_log})
-                
-                # Adaptive sampling: If test times out, reduce sample size and retry
-                if profiling_result.get("timed_out", False) and current_sample_size > 100:
-                    # Reduce sample size by half and retry
-                    prev_size = current_sample_size
-                    current_sample_size = max(100, current_sample_size // 2)
-                    working_df = dataframe.sample(current_sample_size, random_state=42)
-                    dataframe_info = _create_dataframe_sample(working_df)
                     
-                    # Log the sample size reduction
-                    results_history.append({
-                        "step": f"refinement_{iterations}_sample_reduction", 
-                        "result": {
-                            "previous_size": prev_size,
-                            "new_size": current_sample_size,
-                            "reason": "Execution timed out during profiling"
-                        }
-                    })
-                              
-                # Step 3: If profiling fails, attempt to fix the code and restart iteration
-                if not profiling_result.get("success", False) and not profiling_result.get("timed_out", False):
-                    corrected_result = self.code_tester.correct_code(
-                        code=current_code,
-                        problem_description=f"DataFrame rule evaluation function for: {rule_description}",
-                        test_results=[profiling_result],
-                        dataframe_info=dataframe_info,
-                        function_name=function_name,
-                        rule_format=rule_format
-                    )
-                    results_history.append({"step": f"refinement_{iterations}_correction", "result": corrected_result})
-                    
-                    # Update code and restart iteration
-                    current_code = corrected_result.get("corrected_code", current_code)
-                    iterations += 1
-                    continue
-                
-                previous_code = current_code
-                
-                # Step 4: Code review to determine if optimization should continue
-                line_profiling = self._format_line_profiling([{"test_case": "rule_evaluation", "profile_data": profiling_result.get("profile_data", {})}], function_name)
-                
-                review_input = {
-                    "code": current_code,
-                    "problem_description": f"DataFrame rule evaluation function for: {rule_description}",
-                    "test_result": profiling_result,
-                    "dataframe_info": dataframe_info,
-                    "rule_format": rule_format,
-                    "profiling_data": {
-                        "overall_metrics": {
-                            "test": {
-                                "execution_time": profiling_result.get("execution_time"),
-                                "function_results": profiling_result.get("function_results", {})
-                            }
-                        },
-                        "line_profiling": line_profiling
-                    }
-                }
+                    # Reset correction attempts counter when a test passes
+                    if test_case_result.get("success", True):
+                        correction_attempt_count = 0
+                        
+                    # Step 2: Run profiling if enabled
+                    if use_profiling:
+                        profiling_result = self.rule_function_generator.execute_and_profile_rule(current_code, working_df, function_name=function_name)
+                        
+                        test_log = profiling_result.copy()
+                        if "function_results" in test_log: 
+                            del test_log["function_results"]
+                        if "profile_data" in test_log: 
+                            del test_log["profile_data"]
+                        results_history.append({"step": f"refinement_{iterations}_profiling", "result": test_log})
+                        
+                        # Adaptive sampling: If test times out, reduce sample size and retry
+                        """if profiling_result.get("timed_out", False) and current_sample_size > 100:
+                            # Reduce sample size by half and retry
+                            prev_size = current_sample_size
+                            current_sample_size = max(100, current_sample_size // 2)
+                            working_df = dataframe.sample(current_sample_size, random_state=42)
+                            dataframe_info = _create_dataframe_sample(working_df)
+                            
+                            # Log the sample size reduction
+                            results_history.append({
+                                "step": f"refinement_{iterations}_sample_reduction", 
+                                "result": {
+                                    "previous_size": prev_size,
+                                    "new_size": current_sample_size,
+                                    "reason": "Execution timed out during profiling"
+                                }
+                            })"""
 
-                review_result = self.code_reviewer.process(review_input)
-                results_history.append({"step": f"refinement_{iterations}_review", "result": review_result})
-                
-                # Check if we should terminate optimization based on review
-                should_continue = review_result.get("continue_optimization", True)
-                
-                if not should_continue:
-                    # Reviewer suggests terminating optimization
-                    results_history.append({
-                        "step": f"refinement_{iterations}_termination",
-                        "result": {
-                            "reason": "Reviewer recommended termination",
-                            "optimization_potential": review_result.get("optimization_potential"),
-                            "recommendations": review_result.get("improvement_recommendations")
+                    last_working_code = current_code
+                    
+                    # Step 3: Code review to determine if optimization should continue
+                    # Prepare profiling data if available
+                    profiling_data = None
+                    if use_profiling and profiling_result:
+                        line_profiling = self._format_line_profiling([{"test_case": "rule_evaluation", "profile_data": profiling_result.get("profile_data", {})}], function_name)
+                        profiling_data = {
+                            "overall_metrics": {
+                                "test": {
+                                    "execution_time": profiling_result.get("execution_time"),
+                                    "function_results": profiling_result.get("function_results", {})
+                                }
+                            },
+                            "line_profiling": line_profiling
                         }
-                    })
-                    break
-                
-                # Step 5: Optimize code based on profiling and reviewer feedback
-                optimization_context = None
-                if self.use_retrieval:
-                    # Get specific query based on review feedback
-                    optimization_query = f"pandas dataframe optimization techniques for: {rule_description}"
-                    if review_result.get("improvement_recommendations", []):
-                        # Use first 2 recommendations to guide retrieval
-                        recommendations = review_result.get("improvement_recommendations", [])[:2]
-                        optimization_query += f" to improve {', '.join(recommendations)}"
                     
-                    optimization_context = self._get_relevant_context(
-                        query=optimization_query,
-                        source_types=["documentation", "code_snippet"]
-                    )
-                
-                optimizer_input = {
-                    "code": current_code,
-                    "problem_description": f"Optimize the DataFrame rule evaluation function for: {rule_description}",
-                    "dataframe_info": dataframe_info,
-                    "profiling_data": {
-                        "overall_metrics": {
-                            "test": {
-                                "execution_time": profiling_result.get("execution_time"),
-                                "function_results": profiling_result.get("function_results", {})
-                            }
-                        },
-                        "line_profiling": line_profiling
-                    },
-                    "phase": "optimization",
-                    "review_feedback": review_result.get("improvement_recommendations", []),
-                    "retrieval_context": optimization_context,
-                    "rule_format": rule_format
-                }
-                
-                optimizer_result = self.code_optimizer.process(optimizer_input)
-                log_optimizer_result = optimizer_result.copy()
-                if "profiling_data" in log_optimizer_result: del log_optimizer_result["profiling_data"]
-                results_history.append({"step": f"refinement_{iterations}_optimization", "result": log_optimizer_result})
-                
-                # Update and prepare for next iteration
-                current_code = optimizer_result.get("optimized_code", current_code)
-                test_case_result = None  # Reset test case result for next iteration
-                iterations += 1
-            
-            # Final test of the optimized code if we exited the loop without testing it
-            if iterations > 0 and (not test_case_result or test_case_result.get("code") != current_code):
-                # Test with test case if enabled, available, and we're not skipping test case validation
-                if use_test_cases and test_cases and not skip_testcase_validation:
-                    final_test_result = self.code_tester.test_function_with_testcases(
-                        current_code, 
-                        test_cases, 
-                        function_name=function_name
-                    )
-                    results_history.append({"step": "final_test_case", "result": final_test_result})
-                    
-                    # If final test fails, revert to previous code that passed
-                    if not final_test_result.get("success", False) and previous_code:
-                        current_code = previous_code
-                        final_test_result["success"] = True 
-                else:
-                    # Final profiling with real data
-                    final_test_result = self.rule_function_generator.execute_and_profile_rule(current_code, working_df, function_name=function_name)
-                    test_log = final_test_result.copy()
-                    if "function_results" in test_log: del test_log["function_results"]
-                    if "profile_data" in test_log: del test_log["profile_data"]
-                    results_history.append({"step": "final_profiling", "result": test_log})
-                    
-                    # If final test fails, revert to previous code that passed
-                    if not final_test_result.get("success", False) and not final_test_result.get("timed_out", False) and previous_code:
-                        current_code = previous_code
-                        final_test_result["success"] = True
-            else:
-                # Use the last test result as the final result
-                final_test_result = profiling_result
-                    
-            # Store the successful code for future retrieval if enabled
-            if self.use_retrieval and final_test_result.get("success", False) and not final_test_result.get("timed_out", False):
-                self.retriever.add_generated_code(
-                    code=current_code,
-                    metadata={
-                        "description": f"Optimized function for rule: {rule_description}",
-                        "tags": ["rule_evaluation", "dataframe", "optimized"]
+                    # Set up review input - with or without profiling data
+                    review_input = {
+                        "code": current_code,
+                        "problem_description": f"DataFrame rule evaluation function for: {rule_description}",
+                        "dataframe_info": dataframe_info,
+                        "rule_format": rule_format
                     }
+                    
+                    # Add profiling data if available
+                    if profiling_data:
+                        review_input["test_result"] = profiling_result
+                        review_input["profiling_data"] = profiling_data
+
+                    review_result = self.code_reviewer.process(review_input)
+                    results_history.append({"step": f"refinement_{iterations}_review", "result": review_result})
+                    
+                    # Check if we should terminate optimization based on review
+                    should_continue = review_result.get("continue_optimization", True)
+                    
+                    if not should_continue:
+                        # Reviewer suggests terminating optimization
+                        results_history.append({
+                            "step": f"refinement_{iterations}_termination",
+                            "result": {
+                                "reason": "Reviewer recommended termination",
+                                "optimization_potential": review_result.get("optimization_potential"),
+                                "recommendations": review_result.get("improvement_recommendations")
+                            }
+                        })
+                        break
+                    
+                    # Step 4: Optimize code based on profiling and reviewer feedback
+                    optimization_context = None
+                    if self.use_retrieval:
+                        # Get specific query based on review feedback
+                        optimization_query = f"pandas dataframe optimization techniques for: {rule_description}"
+                        if review_result.get("improvement_recommendations", []):
+                            # Use first 2 recommendations to guide retrieval
+                            recommendations = review_result.get("improvement_recommendations", [])[:2]
+                            optimization_query += f" to improve {', '.join(recommendations)}"
+                        
+                        optimization_context = self._get_relevant_context(
+                            query=optimization_query,
+                            source_types=["web"]
+                        )
+                    
+                    # Prepare optimizer input - with or without profiling data
+                    optimizer_input = {
+                        "code": current_code,
+                        "problem_description": f"Optimize the DataFrame rule evaluation function for: {rule_description}",
+                        "dataframe_info": dataframe_info,
+                        "phase": "optimization",
+                        "review_feedback": review_result.get("improvement_recommendations", []),
+                        "retrieval_context": optimization_context,
+                        "rule_format": rule_format,
+                        "warnings": warnings  # Include warnings from test execution
+                    }
+                    
+                    # Add profiling data if available
+                    if profiling_data:
+                        optimizer_input["profiling_data"] = profiling_data
+                    
+                    optimizer_result = self.code_optimizer.process(optimizer_input)
+                    log_optimizer_result = optimizer_result.copy()
+                    if "profiling_data" in log_optimizer_result: 
+                        del log_optimizer_result["profiling_data"]
+                    results_history.append({"step": f"refinement_{iterations}_optimization", "result": log_optimizer_result})
+                    
+                    # Update and prepare for next iteration
+                    current_code = optimizer_result.get("optimized_code", current_code)
+                    iterations += 1
+                    
+                # If we broke out of the inner loop due to correction failures and haven't hit max restarts yet
+                if correction_attempt_count >= max_correction_attempts and last_working_code is None and restart_count <= max_restarts:
+                    continue  # Start the next workflow restart
+                    
+                # Run test case validation after optimization to ensure the optimized code still works
+                test_case_result = self.code_tester.test_function_with_testcases(
+                    current_code, 
+                    test_cases, 
+                    function_name=function_name
                 )
+                results_history.append({"step": f"final_validation", "result": test_case_result})
+                
+                # If test case fails after optimization, revert to previous code
+                if not test_case_result.get("success", False) and last_working_code:
+                    current_code = last_working_code
+                    test_case_result["success"] = True
+                    results_history.append({"step": f"final_reverted_code", "result": test_case_result})
+            
+                # Store the successful code for future retrieval if enabled
+                if self.use_retrieval and test_case_result and test_case_result.get("success", False):
+                    self.retriever.add_generated_code(
+                        code=current_code,
+                        metadata={
+                            "description": f"Optimized function for rule: {rule_description}",
+                            "tags": ["rule_evaluation", "dataframe", "optimized"]
+                        }
+                    )
+                
+                # If we've successfully generated code or reached maximum restarts, exit the loop
+                break
             
             return {
                 "code": current_code,
-                "summary": "Rule function generation completed successfully." if (final_test_result.get("success", False) or final_test_result.get("timed_out", False)) else "Rule function generation failed. See error details in the execution history.",
+                "summary": "Rule function generation completed successfully." if (test_case_result and test_case_result.get("success", False)) else "Rule function generation failed. See error details in the execution history.",
                 "initial_code": initial_code,
                 "results_history": results_history,
-                "function_name": function_name
+                "function_name": function_name,
+                "restart_count": restart_count,
+                "success": test_case_result and test_case_result.get("success", False)
             }
         except Exception as e:
             import traceback
@@ -439,20 +504,11 @@ class RuleOrchestrator(Orchestrator):
         if not self.use_retrieval or not self.retriever:
             return None
             
-        try:
-            # Convert source_types to source filter if specified
-            filter_sources = None
-            if source_types:
-                # Get all sources of the specified types
-                filter_sources = [
-                    source.name for source in self.retriever.sources 
-                    if source.type in source_types and source.enabled
-                ]
-                
+        try:             
             # Get relevant context
             context_results = self.retriever.retrieve(
                 query=query,
-                filter_sources=filter_sources,
+                filter_sources=source_types,
                 top_k=top_k
             )
             
@@ -473,7 +529,7 @@ class RuleOrchestrator(Orchestrator):
             return None
         
     def _format_line_profiling(self, line_profiling, function_name="execute_rule"):
-        """Format Scalene line profiling data for inclusion in prompt"""
+        """Format Scalene line profiling data focusing primarily on hotspots"""
         formatted = ""
         for profile in line_profiling:
             formatted += f"Test: {profile.get('test_case', 'Unknown')}\n"
@@ -498,92 +554,102 @@ class RuleOrchestrator(Orchestrator):
                 # Create a mapping from line numbers to line data for easier access
                 lines_map = {line_data.get('lineno'): line_data for line_data in lines_array if 'lineno' in line_data}
                 
-                # Instead of looking for function boundaries, simply focus on the first N lines
-                # that contain the function code (before the test wrapper code)
+                # Sort line numbers
                 line_numbers = sorted(lines_map.keys())
-                
-                # Find the first line that contains "# Execute the function" which marks
-                # the boundary between the function code and the test wrapper code
+                if not line_numbers:
+                    formatted += "No line information available\n\n"
+                    continue
+                    
+                # Better function code identification
+                # Find actual function definition line (where the function_name is defined)
+                function_start_line = None
                 function_end_line = None
+                
                 for line_num in line_numbers:
-                    line_data = lines_map[line_num]
-                    content = line_data.get('line', '')
-                    if "# Execute the function" in content:
-                        function_end_line = line_num - 1
+                    line_content = lines_map[line_num].get('line', '')
+                    if f"def {function_name}" in line_content:
+                        function_start_line = line_num
                         break
                 
-                # If we can't find the boundary marker, just use all available lines
-                if function_end_line is None and line_numbers:
+                # If we can't find the function definition, look for common boundaries
+                if function_start_line is None:
+                    # Find first non-import line
+                    for line_num in line_numbers:
+                        line_content = lines_map[line_num].get('line', '')
+                        if line_content.strip() and not (
+                            line_content.strip().startswith("import ") or 
+                            line_content.strip().startswith("from ") or
+                            line_content.strip().startswith("#")
+                        ):
+                            function_start_line = line_num
+                            break
+                
+                # Find the function end line
+                if function_start_line is not None:
+                    for line_num in line_numbers:
+                        if line_num > function_start_line:
+                            line_content = lines_map[line_num].get('line', '')
+                            if "# Execute the function" in line_content or "# Test" in line_content:
+                                function_end_line = line_num - 1
+                                break
+                
+                # If we still don't have bounds, use reasonable defaults
+                if function_start_line is None:
+                    function_start_line = min(line_numbers)
+                if function_end_line is None:
                     function_end_line = max(line_numbers)
                 
-                # Determine function start line (first line with content)
-                function_start_line = min(line_numbers) if line_numbers else None
+                # Get function lines only
+                function_lines = [line_num for line_num in line_numbers 
+                                if function_start_line <= line_num <= function_end_line]
                 
-                # Format only the function's line-by-line metrics
-                if function_start_line is not None:
-                    formatted += f"Function code profiling (lines {function_start_line}-{function_end_line}):\n"
-                    formatted += "Line | CPU % (seconds) | Memory (MB) | Alloc (MB) | Code\n"
-                    formatted += "-" * 70 + "\n"
+                # Skip this file if no function lines
+                if not function_lines:
+                    formatted += "No function code identified\n\n"
+                    continue
                     
-                    # Get metrics only for the function lines
-                    function_lines = [line_num for line_num in line_numbers 
-                                    if function_start_line <= line_num <= function_end_line]
-                    
-                    # Generate line-by-line output for function only
-                    for line_num in function_lines:
-                        line_data = lines_map[line_num]
-                        
-                        # Calculate total CPU percentage (Python + C)
-                        cpu_percent = line_data.get('n_cpu_percent_python', 0) + line_data.get('n_cpu_percent_c', 0)
-                        
-                        # Convert percentage to actual seconds spent on this line
-                        cpu_seconds = (cpu_percent / 100.0) * total_cpu_seconds if cpu_percent > 0 else 0
-                        
-                        memory_mb = line_data.get('n_avg_mb', 0)
-                        alloc_mb = line_data.get('n_malloc_mb', 0)
-                        line_content = line_data.get('line', '')
-                        
-                        if cpu_percent > 0 or memory_mb > 0:
-                            # Format line data with both percentage and absolute time
-                            formatted += f"{line_num:4d} | {cpu_percent:5.1f}% ({cpu_seconds:.4f}s) | {memory_mb:8.2f} | {alloc_mb:8.2f} | {line_content.rstrip()}\n"
-                    
-                    # Add summary of hotspots within the function code
-                    formatted += "\nHotspots (within function code only):\n"
-                    # Find the top 5 lines by CPU usage within function
-                    top_cpu_lines = sorted(
-                        [(line_num, lines_map[line_num].get('n_cpu_percent_python', 0) + 
-                        lines_map[line_num].get('n_cpu_percent_c', 0)) 
-                        for line_num in function_lines 
-                        if lines_map[line_num].get('n_cpu_percent_python', 0) + 
-                            lines_map[line_num].get('n_cpu_percent_c', 0) > 0],
-                        key=lambda x: x[1],
-                        reverse=True
-                    )[:5]
-                    
-                    if top_cpu_lines:
-                        formatted += "Top CPU usage lines:\n"
-                        for line_num, cpu_pct in top_cpu_lines:
-                            line_content = lines_map[line_num].get('line', '').rstrip()
-                            cpu_seconds = (cpu_pct / 100.0) * total_cpu_seconds
-                            formatted += f"Line {line_num}: {cpu_pct:.1f}% ({cpu_seconds:.4f}s) - {line_content}\n"                    
-                    
-                    # Add memory hotspots within function
-                    top_mem_lines = sorted(
-                        [(line_num, lines_map[line_num].get('n_avg_mb', 0)) 
-                        for line_num in function_lines
-                        if lines_map[line_num].get('n_avg_mb', 0) > 0],
-                        key=lambda x: x[1],
-                        reverse=True
-                    )[:5]
-                    
-                    if top_mem_lines:
-                        formatted += "\nTop memory usage lines:\n"
-                        for line_num, mem_mb in top_mem_lines:
-                            line_content = lines_map[line_num].get('line', '').rstrip()
-                            formatted += f"Line {line_num}: {mem_mb:.2f} MB - {line_content}\n"
+                formatted += f"Function code profiling (lines {function_start_line}-{function_end_line}):\n"
+                
+                # Focus primarily on hotspots
+                formatted += "\nPerformance Hotspots:\n"
+                
+                # Find the top 7 lines by CPU usage within function
+                top_cpu_lines = sorted(
+                    [(line_num, lines_map[line_num].get('n_cpu_percent_python', 0) + 
+                    lines_map[line_num].get('n_cpu_percent_c', 0)) 
+                    for line_num in function_lines 
+                    if lines_map[line_num].get('n_cpu_percent_python', 0) + 
+                        lines_map[line_num].get('n_cpu_percent_c', 0) > 0],
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:7]
+                
+                if top_cpu_lines:
+                    formatted += "Top CPU usage lines:\n"
+                    for line_num, cpu_pct in top_cpu_lines:
+                        line_content = lines_map[line_num].get('line', '').rstrip()
+                        cpu_seconds = (cpu_pct / 100.0) * total_cpu_seconds
+                        formatted += f"Line {line_num}: {cpu_pct:.1f}% ({cpu_seconds:.4f}s) - {line_content}\n"                    
                 else:
-                    formatted += f"No function code found in the profiling output\n"
+                    formatted += "No significant CPU hotspots identified\n"
+                
+                # Add memory hotspots within function
+                top_mem_lines = sorted(
+                    [(line_num, lines_map[line_num].get('n_avg_mb', 0)) 
+                    for line_num in function_lines
+                    if lines_map[line_num].get('n_avg_mb', 0) > 0],
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:7]
+                
+                if top_mem_lines:
+                    formatted += "\nTop memory usage lines:\n"
+                    for line_num, mem_mb in top_mem_lines:
+                        line_content = lines_map[line_num].get('line', '').rstrip()
+                        formatted += f"Line {line_num}: {mem_mb:.2f} MB - {line_content}\n"
+                else:
+                    formatted += "No significant memory hotspots identified\n"
             
             formatted += "\n"
         
-        return formatted.replace('{', '{{').replace('}', '}}')
+        return formatted

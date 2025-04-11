@@ -27,7 +27,7 @@ class BaseAgent(ABC):
         """Process the input and return the result"""
         pass
     
-    def _create_chain(self, template, parser: BaseOutputParser = StrOutputParser(), parse_with_prompt=True):
+    def _create_chain(self, template, parser: BaseOutputParser = StrOutputParser(), parse_with_prompt=True, run_name="Sequence"):
         """Create an LLM chain with the given template and input variables"""
         
         prompt = ChatPromptTemplate.from_messages([
@@ -38,10 +38,16 @@ class BaseAgent(ABC):
         # Extract the content from AIMessage before passing to parser
         def extract_content(chain_output):
             completion_content = chain_output["completion"].content
-            
+            prompt_value = chain_output["prompt_value"]
             # For JSON parsers, clean the output first
             if isinstance(parser, JsonOutputParser):
                 completion_content = clean_json_output(completion_content)
+                parser_retry = RetryWithErrorOutputParser.from_llm(
+                    self.llm,
+                    parser,
+                    max_retries=2
+                )
+                return parser_retry.parse_with_prompt(completion_content, prompt_value=prompt_value)
             elif not parse_with_prompt:
                 return {"content": completion_content}
             else:
@@ -52,9 +58,9 @@ class BaseAgent(ABC):
             return parser.parse(completion_content)
     
         chain = prompt | self.llm
-        main_chain = RunnableParallel(
+        main_chain = (RunnableParallel(
             completion=chain, prompt_value=prompt
-        ) | RunnableLambda(extract_content)
+        ) | RunnableLambda(extract_content)).with_config({"run_name": run_name})
         return main_chain
 
     def _extract_code_parser(self):
@@ -84,9 +90,9 @@ def _create_dataframe_sample(df):
     formatted_sample += sample_df.to_string()
     
     # Add explicit column information with types
-    formatted_sample += "\n\nDataFrame Column Names (MUST USE THESE EXACT NAMES):\n"
-    for col in df.columns:
-        formatted_sample += f"- {col}\n"
+    # formatted_sample += "\n\nDataFrame Column Names (MUST USE THESE EXACT NAMES):\n"
+    # for col in df.columns:
+    #     formatted_sample += f"- {col}\n"
     
     return formatted_sample
 
@@ -121,6 +127,21 @@ def extract_code(text):
     # If no code blocks found, return the original text
     return text
 
+def common_improvement_recommendations():
+    """Common improvement recommendations for code optimization"""
+    return """
+Common Improvement Recommendations:
+1. Iterating Inefficiently: Using .iterrows() or .apply() for row-wise operations instead of vectorized operations can significantly reduce performance. If vectorized operations are not possible (which is the fastest option by far), consider using map()/applymap(), .apply(), .itertuples(), or .iterrows() in that order of preference.
+2. Creating Unnecessary Copies: Creating unnecessary copies of the dataframe wastes memory. Work on slices or views whenever possible.
+3. Misusing Inplace Operations: Using inplace=True carelessly can overwrite data unintentionally. Avoid inplace operations unless absolutely necessary.
+4. Use Built-in Pandas and NumPy Functions that have implemented C like 'sum()', 'mean()', or 'max()' when needed/possible.
+5. Use vectorized operations that can apply to entire DataFrames and Series including mathematical operations, comparisons, and logic to create a boolean mask to select multiple rows from your data set.
+6. Avoid lambda functions in groupby() and apply() methods. Instead, use built-in functions or vectorized operations whenever possible.
+7. Pandas has optimized operations based on indices, allowing for faster lookup or merging tables based on indices. Single lookups using indices outperform other methods with great margin. When retrieving a single value, using .at[] is faster than using .loc[]. Setting indexes on columns used for grouping might speed up groupby operations.
+8. Try to combine multiple operations into a single pass through the data. For example, instead of grouping multiple times on different columns, group once and aggregate all necessary columns in that single pass.
+"""
+# 7. You can use the '.values' attribute or the '.to_numpy()' to return the underlying NumPy array and perform vectorized calculations directly on the array.
+
 def common_mistakes_prompt():
     """Prompt for common mistakes in code debugging tasks"""
     return """
@@ -128,21 +149,20 @@ Common Mistakes to Avoid When You Generate Code:
 1. Failing to Prepare Data for Regular Expressions: Not converting data to the correct format (e.g., strings) before applying regular expressions can lead to errors or unintended matches.
 2. Ignoring Missing Values: Failing to account for NaN values in the dataset can lead to unexpected results. Always handle missing values using fillna() or dropna() appropriately.
 3. Using Chained Indexing: Using chained indexing (e.g., df[df['column'] > 0]['column2'] = value) can lead to SettingWithCopy warnings and incorrect assignments. Use .loc[] instead.
-4. Iterating Inefficiently: Using .iterrows() or .apply() for row-wise operations instead of vectorized operations can significantly reduce performance.
-5. Allowing Data Type Mismatches: Not ensuring columns have consistent data types before operations can cause errors. Use df.astype() to cast types where needed.
-6. Creating Unnecessary Copies: Creating unnecessary copies of the dataframe wastes memory. Work on slices or views whenever possible.
-7. Mismanaging Index Operations: Resetting or setting indexes carelessly can disrupt the integrity of the dataframe. Always verify the dataframe after index operations.
-8. Assuming Column Order is Fixed: Relying on column order instead of column names can break the code if the order changes unexpectedly.
-9. Overwriting Critical Data: Overwriting important variables inadvertently can cause loss of critical data. Use meaningful variable names to track changes.
-10. Ignoring Memory Usage: Processing large datasets without monitoring memory usage can lead to crashes. Use df.info() and optimize operations for memory efficiency.
-11. Recalculating Intermediate Results: Recomputing the same results multiple times instead of storing them in temporary variables wastes resources.
-12. Hardcoding Values: Hardcoding column names, thresholds, or parameters reduces flexibility. Use variables or configuration files instead.
-13. Ignoring Performance Warnings: Overlooking warnings or errors in the console may result in performance or correctness issues.
-14. Skipping Code Documentation: Failing to add comments for non-trivial operations makes the code harder to understand and maintain.
-15. Neglecting Thorough Testing: Not testing the code with edge cases like empty dataframes, extreme values, or unexpected structures can result in undetected bugs.
-16. Overlooking Duplicate Entries: Ignoring duplicate rows or entries can affect data quality checks. Use df.duplicated() to identify and handle duplicates.
-17. Using Inconsistent Column Name Case: Referencing column names inconsistently with case sensitivity can cause KeyErrors in datasets with varying conventions.
-18. Failing to Validate Output: Not verifying that data quality rules are applied correctly can result in undetected errors. Check flagged rows and passing rows.
-19. Altering Indices Unintentionally: Changing indices during intermediate steps without tracking the original index can cause alignment issues.
-20. Misusing Inplace Operations: Using inplace=True carelessly can overwrite data unintentionally. Avoid inplace operations unless absolutely necessary.
+4. Allowing Data Type Mismatches: Not ensuring columns have consistent data types before operations can cause errors. Use df.astype() to cast types where needed.
+5. Mismanaging Index Operations: Resetting or setting indexes carelessly can disrupt the integrity of the dataframe. Always verify the dataframe after index operations.
+6. Assuming Column Order is Fixed: Relying on column order instead of column names can break the code if the order changes unexpectedly.
+7. Overwriting Critical Data: Overwriting important variables inadvertently can cause loss of critical data. Use meaningful variable names to track changes.
+8. Recalculating Intermediate Results: Recomputing the same results multiple times instead of storing them in temporary variables wastes resources.
+9. Hardcoding Values: Hardcoding column names, thresholds, or parameters reduces flexibility. Use variables or configuration files instead.
+10. Skipping Code Documentation: Failing to add comments for non-trivial operations makes the code harder to understand and maintain.
+11. Neglecting Thorough Testing: Not testing the code with edge cases like empty dataframes, extreme values, or unexpected structures can result in undetected bugs.
+12. Overlooking Duplicate Entries: Ignoring duplicate rows or entries can affect data quality checks. Use df.duplicated() to identify and handle duplicates.
+13. Using Inconsistent Column Name Case: Referencing column names inconsistently with case sensitivity can cause KeyErrors in datasets with varying conventions.
+14. Altering Indices Unintentionally: Changing indices during intermediate steps without tracking the original index can cause alignment issues.
+15. If the rule is unconditional every row in the DataFrame is either a satisfaction or a violation.
+16. Make sure that you don't overwrite the existing entries already contained in the inner dictionaries of the satisfactions or violations.
+17. Keep the keys used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, contextually relevant based on the column names.
+18. Do not use libraries other than pandas and numpy that are not available in the standard library.
+19. Do not write unfinished code, make sure that the code is complete and also don't use auxiliary functions that are not defined in the code.
 """

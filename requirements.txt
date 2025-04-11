@@ -17,3 +17,4 @@ scalene
 langchain-huggingface
 googlesearch-python
 beautifulsoup4
+langchain-chroma

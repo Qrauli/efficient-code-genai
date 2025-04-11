@@ -16,9 +16,11 @@ class TestCase(TypedDict):
     
 class RuleCodeTester(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert code correction agent specialized in fixing the correctness and efficiency of DataFrame rule evaluation functions.
-        Your goal is to fix bugs and validate that rule evaluation code returns the expected output format. 
-        If you are provided with a failing test case, you should modify the code to ensure it passes all tests."""
+        system_prompt = """
+You are an expert code correction agent specialized in fixing the correctness and efficiency of DataFrame rule evaluation functions.
+Your goal is to fix bugs and validate that rule evaluation code returns the expected output format. 
+If you are provided with a failing test case, you should modify the code to ensure it passes all tests.
+"""
         super().__init__(config, "CodeTester", system_prompt)
     
     def process(self, input_data):
@@ -64,7 +66,6 @@ class RuleCodeTester(BaseAgent):
                 failing_tests_errors.append(f"--- {test_name} ---\n{error_msg}")
         
         failing_tests = failing_tests_errors
-        failing_tests = [failing_test.replace("{", "{{").replace("}", "}}") for failing_test in failing_tests]
         
         # Format the rule format information if available
         format_guidance = ""
@@ -76,13 +77,16 @@ When fixing the code, ensure it maintains this exact return structure:
 
 {rule_format}
 """
-        escaped_format_guidance = format_guidance.replace("{", "{{").replace("}", "}}")
-        template = f"""
+        template = """
 Problem Description: {problem_description}
+
+# Task
+Fix the code to make all tests pass. Focus only on correctness for now, not optimization.
+The goal is to make the code work correctly according to the requirements.
 
 Current Code:
 ```python
-{code.replace('{', '{{').replace('}', '}}')}
+{code}
 ```
 
 Errors:
@@ -91,11 +95,7 @@ Errors:
 DataFrame Structure:
 {dataframe_info}
 
-# Task
-Fix the code to make all tests pass. Focus only on correctness for now, not optimization.
-The goal is to make the code work correctly according to the requirements.
-
-{escaped_format_guidance}
+{format_guidance}
 
 Common Issues to Check:
 1. Incorrect column names or DataFrame access patterns
@@ -107,16 +107,19 @@ Common Issues to Check:
 
 Your response should ONLY contain the python code and nothing else.
 ALWAYS wrap your code in ```python and ``` markers.
-
-{common_mistakes_prompt()}
 """
         chain = self._create_chain(
-            template=template       
+            template=template,
+            run_name="CodeCorrection"    
         ) 
         
         result = chain.invoke({
+            "format_guidance": format_guidance,
             "problem_description": problem_description,
-            "dataframe_info": dataframe_info
+            "failing_tests": "\n".join(failing_tests),
+            "dataframe_info": dataframe_info,
+            "code": code,
+            "common_mistakes": common_mistakes_prompt()
         })
         
         return {
@@ -146,6 +149,7 @@ ALWAYS wrap your code in ```python and ``` markers.
         import traceback
         import time
         import ast
+        import warnings
         
         # Create test dataframe from the test case
         test_df_data = test_case.get("dataframe", [])
@@ -176,7 +180,21 @@ ALWAYS wrap your code in ```python and ``` markers.
         actual_output = None
         error = None
         
+        # Setup warning capture
+        warning_messages = []
+        def warning_collector(message, category, filename, lineno, file=None, line=None):
+            warning_messages.append(f"{category.__name__}: {message}")
+        
+        # Store original warning filter and showwarning function
+        original_filters = warnings.filters.copy()
+        original_showwarning = warnings.showwarning
+        
         try:
+            # Configure warning capture
+            warnings.resetwarnings()
+            warnings.simplefilter('always')  # Show all warnings
+            warnings.showwarning = warning_collector
+            
             # First, execute the function definition code
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 exec(function_code, namespace)
@@ -203,8 +221,8 @@ ALWAYS wrap your code in ```python and ``` markers.
                 actual_violation_indexes = extract_indexes(violations)
                 
                 # Convert expected satisfactions and violations from string to Python data structure if needed
-                expected_satisfactions = expected_output.get("satisfactions_indexes")
-                expected_violations = expected_output.get("violations_indexes")
+                expected_satisfactions = expected_output.get("satisfactions_str")
+                expected_violations = expected_output.get("violations_str")
                 
                 # Need to evaluate strings if they're provided that way
                 if isinstance(expected_satisfactions, str):
@@ -221,6 +239,9 @@ ALWAYS wrap your code in ```python and ``` markers.
                 
                 expected_satisfaction_indexes = extract_indexes(expected_satisfactions)
                 expected_violation_indexes = extract_indexes(expected_violations)
+                
+                expected_satisfaction_structure = expected_output.get("satisfactions_str")
+                expected_violation_structure = expected_output.get("violations_str")
                 
                 # Compare extracted indexes
                 satisfactions_match = actual_satisfaction_indexes == expected_satisfaction_indexes
@@ -267,9 +288,11 @@ ALWAYS wrap your code in ```python and ``` markers.
                         error_message += f"- Confidence: Expected {expected_output.get('confidence')}, got {confidence}\n"
                     if not satisfactions_match:
                         error_message += f"- Satisfaction indexes: Expected {sorted(list(expected_satisfaction_indexes))}, extracted from satisfactions output {sorted(list(actual_satisfaction_indexes))}\n"
+                        error_message += f"- Satisfaction structure: Expected {expected_satisfaction_structure}, got {satisfactions}\n"
                     if not violations_match:
                         error_message += f"- Violation indexes: Expected {sorted(list(expected_violation_indexes))}, extracted from violations output {sorted(list(actual_violation_indexes))}\n"
-                
+                        error_message += f"- Violation structure: Expected {expected_violation_structure}, got {violations}\n"
+                        
                     # Include the test DataFrame in the error message
                     error_message += "\nTest DataFrame used:\n"
                     error_message += str(pd.DataFrame(test_df_data).head(10))
@@ -285,14 +308,9 @@ ALWAYS wrap your code in ```python and ``` markers.
                     "success": success,
                     "execution_time": time.time() - start_time,
                     "comparison": comparison,
-                    "actual_output": {
-                        "support": support,
-                        "confidence": confidence,
-                        "satisfaction_indexes": sorted(list(actual_satisfaction_indexes)),
-                        "violation_indexes": sorted(list(actual_violation_indexes))
-                    },
                     "error": error_message,
-                    "test_data": test_df_data 
+                    "test_data": test_df_data,
+                    "warnings": warning_messages  # Include captured warnings in the result
                 }           
             else:
                 error_msg = f"Exception: Function did not return expected dictionary format with required keys. Got: {type(actual_output)}"
@@ -305,7 +323,8 @@ ALWAYS wrap your code in ```python and ``` markers.
                 return {
                     "success": False,
                     "execution_time": time.time() - start_time,
-                    "error": error_msg
+                    "error": error_msg,
+                    "warnings": warning_messages  # Include captured warnings in the result
                 }
         except Exception as e:
             error_msg = f"{str(e)}\n{traceback.format_exc()}"
@@ -315,8 +334,13 @@ ALWAYS wrap your code in ```python and ``` markers.
                 "execution_time": time.time() - start_time,
                 "stdout": stdout_buffer.getvalue(),
                 "stderr": stderr_buffer.getvalue(),
-                "error": error_msg
+                "error": error_msg,
+                "warnings": warning_messages  # Include captured warnings in the result
             }
+        finally:
+            # Restore original warning behavior
+            warnings.filters = original_filters
+            warnings.showwarning = original_showwarning
 
     def test_function_with_testcases(self, function_code, test_cases, function_name="execute_rule"):
         """Test the function code with multiple test cases
@@ -337,6 +361,7 @@ ALWAYS wrap your code in ```python and ``` markers.
         # Run each test case individually
         results = []
         all_passed = True
+        all_warnings = []  # Collect warnings from all test cases
         
         for i, test_case in enumerate(test_cases):
             result = self.test_function_with_testcase(
@@ -349,21 +374,33 @@ ALWAYS wrap your code in ```python and ``` markers.
             result["test_case_name"] = test_case.get("name", f"Test Case {i+1}")
             results.append(result)
             
+            # Collect warnings
+            if "warnings" in result and result["warnings"]:
+                all_warnings.extend(result["warnings"])
+            
             # Update overall success flag
             if not result.get("success", False):
                 all_passed = False
+        
+        # Remove duplicates from warnings while preserving order
+        unique_warnings = []
+        for warning in all_warnings:
+            if warning not in unique_warnings:
+                unique_warnings.append(warning)
         
         return {
             "success": all_passed,
             "test_results": results,
             "num_tests": len(results),
             "num_passed": sum(1 for r in results if r.get("success", False)),
-            "code": function_code
+            "code": function_code,
+            "warnings": unique_warnings  # Add collected warnings to the result
         }
 
 def extract_indexes(structure):
     """
     Recursively extract all row indexes from a nested structure of dictionaries, lists, sets, and tuples.
+    Extracts numbers from leaf lists and single numeric leaf values.
     
     Args:
         structure: The nested structure to extract indexes from (dict, list, set, tuple, or primitive)
@@ -374,29 +411,22 @@ def extract_indexes(structure):
     indexes = set()
     
     if isinstance(structure, dict):
-        # Extract indexes from both keys and values
-        for k, v in structure.items():
-            # If the key is a tuple containing indexes, process it
-            if isinstance(k, tuple):
-                # Skip column names in tuple keys like (('column_name', value), ...)
-                for item in k:
-                    if isinstance(item, tuple) and len(item) == 2:
-                        continue  # Skip column name tuples
-                    elif isinstance(item, (int, float)) and not isinstance(item, bool):
-                        indexes.add(int(item))
-            elif isinstance(k, (int, float)) and not isinstance(k, bool):
-                indexes.add(int(k))
-            
-            # Recursively process values
+        # Only process values in dictionaries
+        for v in structure.values():
             indexes.update(extract_indexes(v))
     
     elif isinstance(structure, (list, set, tuple)):
-        for item in structure:
-            if isinstance(item, (dict, list, set, tuple)):
-                indexes.update(extract_indexes(item))
-            elif isinstance(item, (int, float)) and not isinstance(item, bool):
+        # For lists, check if it's a leaf list (contains only primitives)
+        if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in structure):
+            # If it's a leaf list with numbers, extract those numbers
+            for item in structure:
                 indexes.add(int(item))
+        else:
+            # If not a leaf list, recursively process its elements
+            for item in structure:
+                indexes.update(extract_indexes(item))
     
+    # Handle the case where the leaf is a single number
     elif isinstance(structure, (int, float)) and not isinstance(structure, bool):
         indexes.add(int(structure))
     

@@ -3,9 +3,10 @@ from langchain_core.output_parsers import JsonOutputParser
 
 class RuleFormatAnalyzer(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert rule analysis agent that determines the appropriate structure and format 
-        for implementing data quality rules. Your job is to analyze a rule description and determine what type of rule it is
-        and the appropriate format for the output."""
+        system_prompt = """
+You are an expert rule analysis agent that determines the appropriate structure and format for implementing data quality rules. Your job is to analyze a rule description and determine what type of rule it is and the appropriate format for the output.
+"""
+
         super().__init__(config, "RuleFormatAnalyzer", system_prompt)
     
     def process(self, rule_description, dataframe_info=None):
@@ -216,8 +217,8 @@ I want you to return your analysis as a JSON object with the following structure
 {{
     "support_calculation": "Detailed explanation of how support should be calculated",
     "confidence_calculation": "Detailed explanation of how confidence should be calculated",
-    "satisfactions_format": "Detailed explanation of the structure for satisfactions with example output",
-    "violations_format": "Detailed explanation of the structure for violations with example output"
+    "satisfactions_format": "Detailed explanation of the structure for satisfactions",
+    "violations_format": "Detailed explanation of the structure for violations"
 }}
 ```
 
@@ -225,7 +226,11 @@ IMPORTANT:
 - Make sure to use the exact column names from the DataFrame sample in your explanations
 - The output format explanations should be detailed and clear with specific examples tailored to this rule
 - For multi-row rules, clearly specify how groups should be formed and what keys should be used
-- Make sure you check if the rule is conditional or unconditional and adjust the explanations accordingly. Especially mention that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
+- You must be able to extract the row indexes from the satisfactions and violations dictionaries. The nested dictionaries/sets always have row indexes as the leaf nodes/primary values and not other column values.
+- Make sure you check if the rule is conditional or unconditional and adjust the explanations accordingly. Especially mention that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation. 
+- Multi-row rules often seem conditional since they work on groups of rows, but single-row groups are also possible and should be present in either the satisfactions or violations. So make sure to mention that single-row groups are also possible and should normally be present in the satisfactions or violations dictionaries.
+- Some rules are formulated in a way that seem more complex than they are. Normally these rules can be reduced to a simpler form. For example, "If rows in question all have the same value in State, then Phone determines AreaCode." can be reduced to "If rows in question all have the same value in State and Phone, then AreaCode should be the same for all rows.". Try to reduce the rule to its simplest form and rely on this simpler form for your analysis.
+- Try to make the group key a tuple of key-value pairs whenever it makes sense. For example, if the rule is about a group of rows with the same value in State and Phone, then the group key should be (("State", "NY"), ("Phone", "1234567890")).
 """
         
         # Create a JSON output parser
@@ -233,7 +238,8 @@ IMPORTANT:
         
         chain = self._create_chain(
             template=template,
-            parser=json_parser
+            parser=json_parser,
+            run_name="RuleFormatAnalyzer"
         )
         
         result = chain.invoke({

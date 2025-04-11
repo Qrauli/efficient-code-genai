@@ -3,8 +3,10 @@ from langchain_core.output_parsers import JsonOutputParser
 
 class RuleTestCaseGenerator(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert test case generator for data quality rules. Your job is to create precise, 
-        accurate test cases that validate the implementation of data quality rules on pandas DataFrames."""
+        system_prompt = """
+You are an expert test case generator for data quality rules. Your job is to create precise, 
+accurate test cases that validate the implementation of data quality rules on pandas DataFrames.
+"""
         super().__init__(config, "RuleTestCaseGenerator", system_prompt)
     
     def process(self, rule_description, rule_format, dataframe_info=None, num_test_cases=3):
@@ -45,6 +47,7 @@ Test case/s should:
 - Use the exact column names from the DataFrame info
 - Include rows that both satisfy and violate the rule
 - Have precisely calculated expected values
+- Should include all rows in either satisfactions or violations, but not both, unless the rule is conditional
 
 ## Rule Examples with Test Cases
 
@@ -61,8 +64,6 @@ Test case/s should:
   "expected_output": {{
     "support": 0.4,
     "confidence": 0.67,
-    "satisfactions_indexes": [0, 4],
-    "violations_indexes": [2],
     "satisfactions_str": "{{0, 4}}",
     "violations_str": "{{2}}"
   }}
@@ -89,8 +90,6 @@ Test case/s should:
   "expected_output": {{
     "support": 0.8,
     "confidence": 0.5,
-    "satisfactions_indexes": [0, 2],
-    "violations_indexes": [1, 3],
     "satisfactions_str": "{{(('Department', 'Sales')): {{('Manager', 'Smith'): [0, 2]}}}}",
     "violations_str": "{{(('Department', 'Engineering')): {{('Manager', 'Johnson'): [1], ('Manager', 'Wilson'): [3]}}}}"
   }}
@@ -118,8 +117,6 @@ Test case/s should:
   "expected_output": {{
     "support": 0.6,
     "confidence": 0.67,
-    "satisfactions_indexes": [0, 2, 3],
-    "violations_indexes": [1, 4],
     "satisfactions_str": "{{(('ProductID', 101), ('StoreID', 1)): {{'unique_record': 0}}, (('ProductID', 101), ('StoreID', 2)): {{'unique_record': 2}}, (('ProductID', 103), ('StoreID', 1)): {{'unique_record': 3}}}}",
     "violations_str": "{{(('ProductID', 102), ('StoreID', 2)): {{'duplicates': [1, 4]}}}}"
   }}
@@ -140,24 +137,22 @@ I want you to return {num_test_cases} test cases in a structured JSON format tha
 {{
   "test_cases": [
     {{
-      "name": "Test Case 1: [Brief description of what aspect this tests]",
+      "name": "Test Case 1",
       "dataframe": {{
         "column1": [column1_values],
         "column2": [column2_values],
         ...
       }},
-      "explanation": "Detailed explanation of why these values are expected",
+      "explanation": "Detailed explanation of why these values are expected detailing why certain rows are included in satisfactions or violations according to the rule",
       "expected_output": {{
         "support": 0.X,
         "confidence": 0.Y,
-        "satisfactions_indexes": [list of row indexes that satisfy the rule e.g. [0, 1]],
-        "violations_indexes": [list of row indexes that violate the rule e.g. [2, 3]],
         "satisfactions_str": "string representation of the satisfactions structure",
         "violations_str": "string representation of the violations structure"
       }}
     }},
     {{
-      "name": "Test Case 2: [Brief description of what aspect this tests]",
+      "name": "Test Case 2",
       "dataframe": {{...}},
       "explanation": "...",
       "expected_output": {{...}}
@@ -174,12 +169,13 @@ IMPORTANT:
 - Keep the test cases simple - the goal is to validate the rule implementation, not to stress test it
 - When calculating support and confidence, follow the exact formulas specified in the rule format
 - For multi-row rules, it's fundamentally impossible to represent a violation with a single row index, since the rule is evaluating relationships between multiple rows. A violation always involves a group of rows that collectively fail to satisfy the rule's constraints.
+- Multi-row rules often seem conditional since they work on groups of rows, but single-row groups are also possible and should be present in either the satisfactions or violations.
 - For satisfactions_str and violations_str, provide Python-syntax string representations that could be evaluated with eval() to recreate the actual data structure
 - Include only the columns needed to test the rule (don't include unnecessary columns)
 - Calculate support and confidence values precisely according to the formula in the rule format
 - For satisfactions_indexes and violations_indexes, provide the exact row indexes that should be present in the output
 - For satisfactions and violations, provide the string representation of the Python structure as it would appear in the output
-
+- The indexes present in satisfactions_str and satisfactions_indexes should match, and the same for violations_str and violations_indexes
 """
         
         # Create a JSON output parser
@@ -187,7 +183,8 @@ IMPORTANT:
         
         chain = self._create_chain(
             template=template,
-            parser=json_parser
+            parser=json_parser,
+            run_name="RuleTestCaseGenerator"
         )
         
         result = chain.invoke({

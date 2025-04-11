@@ -1,17 +1,19 @@
-from .base_agent import BaseAgent, common_mistakes_prompt
+from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt
 import re
 
 class RuleCodeReviewer(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert code reviewing agent specialized in analyzing DataFrame rule evaluation functions on their efficiency.
-        Your goal is to thoroughly assess code quality, identify potential improvements, and determine if further optimization is worthwhile.
+        system_prompt = """
+You are an expert code reviewing agent specialized in analyzing DataFrame rule evaluation functions on their efficiency.
+Your goal is to identify potential improvements and determine if further optimization is worthwhile.
         
-        Keep in mind that the dataframes can be large and performance is critical.
+Keep in mind that the dataframes can be large and performance is critical. 
+Focus on improving time complexity, memory usage, and overall performance. Execution time is the most critical factor even if it means sacrificing memory usage.
         
-        Based on your analysis, you'll recommend whether to:
-        - Terminate optimization (if code is already well-optimized or further improvements would be minimal)
-        - Continue optimization (suggesting specific improvement areas)
-        """
+Based on your analysis, you'll recommend whether to:
+- Terminate optimization (if code is already well-optimized or further improvements would be minimal)
+- Continue optimization (suggesting specific improvement areas)
+"""
         super().__init__(config, "CodeReviewer", system_prompt)
     
     def process(self, input_data):
@@ -39,29 +41,29 @@ class RuleCodeReviewer(BaseAgent):
         """
         
         """Review the code and provide recommendations for improvement"""
-        template = f"""
+        template = """
 # Problem Description
 Thoroughly review this DataFrame rule evaluation function and answer if the code is efficiently implemented? Is it using optimal pandas/numpy techniques? Are there any performance bottlenecks or inefficient operations that could be improved?
 
 {problem_description}
 
 # DataFrame Information
-{dataframe_info.replace('{', '{{').replace('}', '}}')}
+{dataframe_info}
 
 # Current Code
 ```python
-{code.replace('{', '{{').replace('}', '}}')}
+{code}
 ```
 
 # Line-by-Line Profiling:
 {line_profiling}
 
-{common_mistakes_prompt()}
-
 Based on your analysis, provide:
-1. A list of specific improvement recommendations (if any)
+1. A list of specific improvement recommendations (if any, most important first)
 2. Your assessment of whether further optimization would yield significant benefits
 3. A final recommendation: "CONTINUE OPTIMIZATION" or "TERMINATE OPTIMIZATION"
+
+{common_improvement_recommendations}
 
 Format your response as follows:
 
@@ -79,10 +81,17 @@ FINAL_RECOMMENDATION: [CONTINUE OPTIMIZATION/TERMINATE OPTIMIZATION]
 """
         
         
-        chain = self._create_chain(template=template, parse_with_prompt=False)
+        chain = self._create_chain(
+            template=template, 
+            parse_with_prompt=False,
+            run_name="RuleCodeReviewer"
+        )
         result = chain.invoke({
             "problem_description": problem_description,
-            "dataframe_info": dataframe_info
+            "code": code,
+            "dataframe_info": dataframe_info,
+            "line_profiling": line_profiling,
+            "common_improvement_recommendations": common_improvement_recommendations()
         })
         
         # Parse the review result to extract structured information

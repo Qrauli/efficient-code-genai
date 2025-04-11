@@ -20,7 +20,7 @@ class Config:
     AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
     
     # Evaluation Configuration
-    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "7"))
+    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "20"))
     MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "1024"))
     
     # Paths
@@ -32,7 +32,7 @@ class Config:
     
     # Retrieval settings
     ENABLE_RETRIEVAL = False
-    RETRIEVAL_STORAGE_PATH = "data/retrieval_store"
+    RETRIEVAL_STORAGE_PATH = "../data/retrieval_store"
     RETRIEVAL_TOP_K = 5
     
     # Add to your config file

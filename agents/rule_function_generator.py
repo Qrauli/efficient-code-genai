@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent, common_mistakes_prompt
+from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt
 import pandas as pd
 import numpy as np
 import sys
@@ -8,9 +8,11 @@ from utils.code_execution import profile_with_scalene
 
 class RuleFunctionGenerator(BaseAgent):
     def __init__(self, config):
-        system_prompt = """You are an expert code generation agent specialized in creating efficient functions to evaluate rules on pandas DataFrames.
-        Your goal is to generate high-quality, optimized code that evaluates rule satisfaction, calculates metrics like support and confidence, and efficiently identifies satisfying or violating rows. 
-        Your primary task still is to produce correct code, so focus on correctness for now, but you should also consider the performance of the code you produce."""
+        system_prompt = """
+You are an expert code generation agent specialized in creating efficient functions to evaluate rules on pandas DataFrames.
+Your goal is to generate high-quality, optimized code that evaluates rule satisfaction, calculates metrics like support and confidence, and efficiently identifies satisfying or violating rows. 
+Your primary task is to produce correct and efficient code, so focus on correctness for now, but you should also consider the performance of the code you produce.
+"""
         super().__init__(config, "RuleFunctionGenerator", system_prompt)
     
     def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None, test_case_guidance=None):
@@ -37,11 +39,8 @@ Based on the rule analysis, implement the following output structure:
 
 {rule_format}
 """
-        # Use double curly braces to escape any curly braces in the format_guidance
-        # that might come from rule_format
-        escaped_format_guidance = format_guidance.replace("{", "{{").replace("}", "}}")
 
-        template = f"""
+        template = """
 # Rule Description
 {rule_description}
 
@@ -57,10 +56,10 @@ Generate a Python function named `{function_name}` that takes a pandas DataFrame
 # DataFrame Sample
 {df_sample}
 
-{context or ""}
+{context}
 
-{escaped_format_guidance}
-{test_case_guidance.replace("{", "{{").replace("}", "}}") or ""}
+{format_guidance}
+{test_case_guidance}
 
 Prioritize:
 - Vectorized operations over loops
@@ -80,18 +79,26 @@ IMPORTANT:
 - Ensure that each key used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, always includes the column name when a column value is part of the key. For example, valid keys can be ("A", 100) or (("A", 100), ("B", 200)), but not (100) or (100, 200).
 - Make sure that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
 
-{common_mistakes_prompt()}
+{common_improvement_recommendations}
+
+{common_mistakes_prompt}
 """
         
         parser = self._extract_code_parser()
         chain = self._create_chain(
-            template=template
+            template=template,
+            run_name="RuleFunctionGenerator"
         )
         
         result = chain.invoke({
+            "rule_description": rule_description,
             "df_sample": df_sample,
+            "format_guidance": format_guidance,
+            "test_case_guidance": test_case_guidance or "",
+            "context": context or "",
             "function_name": function_name,
-            "context": context
+            "common_mistakes_prompt": common_mistakes_prompt(),
+            "common_improvement_recommendations": common_improvement_recommendations()
         })
         
         return {
@@ -130,21 +137,7 @@ try:
         
     # Run the function and capture results
     result = {function_name}(df)
-    
-    # Extract results - handling dictionary return format
-    if isinstance(result, dict) and all(k in result for k in ['support', 'confidence', 'satisfactions', 'violations']):
-        # Create a proper JSON object and print it using json.dumps
-        result_dict = {{
-            "support": result.get('support'),
-            "confidence": result.get('confidence')
-            # "satisfactions": result.get('satisfactions'),
-            # "violations": result.get('violations')
-        }}
-        print("FUNCTION_RESULT: " + json.dumps(result_dict))
-        success = True
-    else:
-        success = False
-        print("ERROR: Function did not return expected dictionary format with required keys")
+    print("SUCCESS")
 except Exception as e:
     print("ERROR:", str(e))
     print("TRACEBACK:", traceback.format_exc())
@@ -163,14 +156,8 @@ except Exception as e:
             
             output_lines = profile_result.get("output", "").split('\n')
             for i, line in enumerate(output_lines):
-                if line.startswith("FUNCTION_RESULT:"):
-                    try:
-                        import json
-                        result_str = line.replace("FUNCTION_RESULT:", "").strip()
-                        function_results = json.loads(result_str)
-                        success = bool(function_results)  # Success if we got any results
-                    except Exception as e:
-                        error_message = f"Failed to parse function results: {str(e)}"
+                if line.startswith("SUCCESS"):
+                    success = True
                 elif line.startswith("ERROR:"):
                     error_message = line.replace("ERROR:", "").strip()
                 elif line.startswith("TRACEBACK:"):

@@ -1,38 +1,99 @@
-# Efficient Code Generation with Retrieval-Augmented Multi-Agent Workflow
+# Efficient Code Generation for Data Quality Rules with Multi-Agent Workflow
 
 ## Overview
 
-This repository implements a retrieval-augmented multi-agent workflow for generating efficient and maintainable code, with a special focus on data science tasks. The system leverages Large Language Models (LLMs) through a coordinated multi-agent architecture that iteratively improves code quality, correctness, and efficiency.
+This repository implements a multi-agent workflow for generating efficient and correct data quality rule evaluation functions. The system uses Large Language Models (LLMs) through a coordinated multi-agent architecture that iteratively improves code quality, correctness, and efficiency specifically for pandas DataFrame operations.
 
 ## Problem Statement
 
-Writing efficient code is challenging, especially for data science tasks processing millions of rows of data. Current LLM-based code generation approaches have limitations in consistency, efficiency, and correctness. When processing large datasets, inefficient code can significantly increase processing time with notable economic implications.
+Implementing data quality rules for large datasets is challenging, requiring both correctness and efficiency. Current LLM-based code generation approaches often have limitations in consistency, efficiency, and correctness when handling complex data quality rules across millions of rows. This project aims to solve these challenges through specialized agents working together in a coordinated workflow.
 
 ## Architecture
 
 The system employs a multi-agent architecture with specialized components:
 
-### Agents
-- **[CodeGenerator](agents/code_generator.py)**: Generates initial code based on problem descriptions
-- **[CodeTester](agents/code_tester.py)**: Creates test cases and verifies code correctness
-- **[CodeOptimizer](agents/code_optimizer.py)**: Improves code efficiency using profiling data and fixes correctness issues
-- **[Orchestrator](agents/orchestrator.py)**: Coordinates the workflow between agents in iterative refinement cycles
+### Rule Evaluation Agents
+- **RuleFunctionGenerator**: Generates initial code for data quality rule evaluation
+- **RuleCodeTester**: Tests the rule implementation against test cases
+- **RuleCodeOptimizer**: Improves code efficiency using profiling data
+- **RuleCodeReviewer**: Analyzes code quality and determines if further optimization is needed
+- **RuleFormatAnalyzer**: Determines the appropriate output structure for different rule types
+- **RuleTestCaseGenerator**: Creates test cases for validating rule implementations
+- **RuleTestCaseReviewer**: Identifies whether failures are in the implementation or test cases
+
+### Orchestration
+- **RuleOrchestrator**: Coordinates the workflow between agents in iterative refinement cycles
 
 ### Retrieval System
-- **[Retriever](retrieval/retriever.py)**: Implements hybrid retrieval (dense and sparse) to find relevant code examples
-- **Document Store**: Manages the code corpus for retrieval
+- **ContextRetriever**: Retrieves relevant documentation, code snippets, and web resources
+- **WebSearchIntegration**: Augments the knowledge base with targeted web searches
 
 ### Utilities
-- **[Code Execution](utils/code_execution.py)**: Safely executes code with performance measurements
-- **Prompt Templates**: Manages specialized prompts for different agents
+- **Code Execution**: Safely executes and profiles rule implementations
+- **Context Retrieval**: Manages retrieval of relevant documentation and examples
 
 ## Workflow
 
-1. **Test Generation**: Create comprehensive test cases from the problem description
-2. **Initial Code Generation**: Generate initial code with retrieval augmentation
-3. **Correctness Refinement**: Iteratively test and fix code until all tests pass
-4. **Performance Optimization**: Profile code and optimize for efficiency
-5. **Final Evaluation**: Measure performance improvements
+1. **Format Analysis**: Analyze the rule description to determine correct output structure
+2. **Test Case Generation**: Create test cases that validate rule implementation
+3. **Initial Code Generation**: Generate initial rule implementation code
+4. **Correctness Refinement**: Test and fix code until tests pass
+5. **Code Review**: Analyze code for potential improvements
+6. **Performance Optimization**: Profile code and optimize for efficiency
+7. **Final Validation**: Ensure optimized code still passes tests
+
+```mermaid
+flowchart TD
+    subgraph "Rule Processing Workflow"
+        Start[User Rule Description] --> FormatAnalyzer[RuleFormatAnalyzer]
+        FormatAnalyzer --> |Rule Format| TestGen[RuleTestCaseGenerator]
+        TestGen --> |Test Cases| GenCode[RuleFunctionGenerator]
+        
+        
+        GenCode --> |Initial Code| TestRun[RuleCodeTester]
+        TestRun --> |Test Results| TestChecker{Tests Pass?}
+        
+        TestChecker -->|No| Attempts{Max Attempts?}
+        Attempts -->|Yes| RestartCheck
+        Attempts -->|No| TestReviewer
+        TestReviewer[RuleTestCaseReviewer]
+        TestReviewer --> ReviewDecision{Fix Code or Tests?}
+        
+        ReviewDecision -->|Fix Tests| UpdateTests[Update Test Cases]
+        UpdateTests --> TestRun
+        
+        ReviewDecision -->|Fix Code| CodeCorrection[Code Correction]
+        CodeCorrection --> TestRun
+        
+        TestChecker -->|Yes| Profile[Function Profiling]
+        Profile --> CodeReviewer[RuleCodeReviewer]
+        
+        CodeReviewer --> OptimizeDecision{Continue Optimization?}
+        OptimizeDecision -->|Yes| CodeOptimizer[RuleCodeOptimizer]
+        CodeOptimizer --> TestRun
+        
+        OptimizeDecision -->|No| FinalValidation[Final Test Validation]
+        FinalValidation --> ResultCheck{Tests Pass?}
+        
+        ResultCheck -->|No, but have working version| RevertToLast[Revert to Last Working Version]
+        RevertToLast --> FinalSuccess
+        
+        ResultCheck -->|Yes| FinalSuccess[Return Optimized Code]
+        
+        ContextRetriever[ContextRetriever]
+        GenCode -.->|Query| ContextRetriever
+        CodeOptimizer -.->|Optimization Query| ContextRetriever
+        ContextRetriever -.->|Relevant Context| GenCode
+        ContextRetriever -.->|Optimization Context| CodeOptimizer
+        FinalSuccess -.->|Store Success| ContextRetriever
+    
+        RestartCheck{Max Restarts}
+        RestartCheck -->|No| Restart[Restart Workflow]
+        Restart --> FormatAnalyzer
+        RestartCheck -->|Yes| Failure[Return Error/Last Code]
+ 
+    end
+```
 
 ## Installation
 
@@ -42,7 +103,7 @@ git clone https://github.com/yourusername/efficient-code-genai.git
 cd efficient-code-genai
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r [requirements.txt](http://_vscodecontentref_/1)
 
 # Create a .env file with your API keys
 echo "LLM_API_KEY=your_api_key_here" > .env
@@ -50,44 +111,51 @@ echo "LLM_API_KEY=your_api_key_here" > .env
 
 ## Usage
 
-```bash
-# Run the system on a problem
-python main.py --problem ./data/benchmark_problems/your_problem.txt --output ./results
+```python
+from agents.rule_orchestrator import RuleOrchestrator
+from config import Config
+
+# Initialize configuration and orchestrator
+config = Config()
+orchestrator = RuleOrchestrator(config)
+
+# Process a rule
+result = orchestrator.process_rule(
+    rule_description="If values in column A are greater than 10, then values in column B must be less than 5",
+    dataframe=your_dataframe,
+    sample_size=1000,  # Optional: use sample for development
+    use_profiling=True  # Optional: enable performance profiling
+)
+
+# The generated function can be used directly
+from utils.code_execution import execute_code
+exec(result["code"])  # This defines the function in your environment
+rule_result = execute_rule(your_dataframe)  # Execute the rule function
 ```
 
 ## Project Structure
 
 ```
 __init__.py
-config.py             # Configuration settings
-main.py               # Entry point
-README.md
-requirements.txt
-agents/               # Multi-agent components
+config.py               # Configuration settings
+agents/                 # Multi-agent components
     __init__.py
-    base_agent.py     # Abstract base agent class
-    code_generator.py # Code generation agent
-    code_optimizer.py # Code optimization agent
-    code_tester.py    # Test creation/verification agent
-    orchestrator.py   # Workflow coordination
-data/
-    benchmark_problems/ # Problem descriptions
-    code_corpus/        # Code examples for retrieval
-evaluation/
-    __init__.py
-    benchmarks.py     # Benchmark management
-    evaluator.py      # Evaluation framework
-    metrics.py        # Performance metrics
-retrieval/
-    __init__.py
-    document_store.py # Document management
-    indexer.py        # Corpus indexing
-    retriever.py      # Hybrid retrieval implementation
-    vectore_store.py  # Vector database interface
+    base_agent.py       # Abstract base agent class
+    rule_function_generator.py  # Initial code generation
+    rule_code_tester.py         # Test execution
+    rule_code_optimizer.py      # Code optimization
+    rule_code_reviewer.py       # Code quality review
+    rule_format_analyzer.py     # Rule output format analysis
+    rule_test_case_generator.py # Test case generation
+    rule_test_case_reviewer.py  # Test case review
+    rule_orchestrator.py        # Workflow coordination
 utils/
     __init__.py
-    code_execution.py  # Safe code execution with metrics
-    prompt_templates.py # LLM prompt templates
+    code_execution.py   # Safe code execution with metrics
+    context_retrieval.py # Retrieval system implementation
+    web_search.py       # Web search integration
+data/
+    retrieval_store/    # Storage for retrieved documents
 ```
 
 ## Research Context

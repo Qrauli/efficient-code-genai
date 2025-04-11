@@ -37,19 +37,53 @@ def main():
     """Example usage of the RuleOrchestrator for generating rule evaluation functions"""
     # set_debug(True)
     # Load data from CSV
-    df = pd.read_csv("Tax.csv")
-        
+    # df = pd.read_csv("Tax.csv")
+    df = pd.read_csv("Tax-title-cleaned.csv")
+    
     # Initialize config and orchestrator
     config = Config()
-    orchestrator = RuleOrchestrator(config)
+    orchestrator = RuleOrchestrator(config, use_retrieval=False)
     
     # Example rule definition
     rule_description = """
-    Rule: AreaCode(String) determines City(String) and State(String)
+Rule: If rows in question all have the same value in State, then the following rule applies: LName determines FName.
+    """
+    """
+Rule: AreaCode determines City and State
     """
     
     # Process the rule (using a sample for initial development)
-    result = orchestrator.process_rule(rule_description, df, sample_size=100000, use_test_cases=True)
+    result = orchestrator.process_rule(rule_description, df, use_profiling=True, test_percentage=1)
+    
+    import numpy as np
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+    import time
+    
+    namespace = {
+        "pd": pd,
+        "np": np,
+        "test_df": df
+    }
+    
+    # Prepare stdout/stderr capture
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    
+    start_time = time.time()
+    
+    """try:
+        # First, execute the function definition code
+        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+            exec(result["code"], namespace)
+            
+            # Then execute the function with the test dataframe
+            exec(f"result = execute_rule(test_df)", namespace)
+            
+            run_time = time.time() - start_time
+            print(f"Execution time: {run_time:.4f} seconds")
+    except Exception as e:
+        pass"""
     
     # Print results
     print("\nRule Description:")

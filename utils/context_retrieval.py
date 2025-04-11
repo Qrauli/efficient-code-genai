@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pandas as pd
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader, DirectoryLoader, TextLoader
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.retrievers import ParentDocumentRetriever
 import logging
@@ -141,7 +141,7 @@ class ContextRetriever:
                         embedding=self.embeddings,
                         persist_directory=vectorstore_path
                     )
-                    self.vectorstore.persist()
+                    # self.vectorstore.persist()
                     self.logger.info(f"Created vectorstore with {len(all_documents)} documents")
                 else:
                     self.logger.warning("No documents loaded. Vectorstore not created.")
@@ -173,7 +173,7 @@ class ContextRetriever:
             search_kwargs["filter"] = {"source": {"$in": filter_sources}}
             
         try:
-            docs = self.retriever.get_relevant_documents(query)
+            docs = self.retriever.invoke(query, **search_kwargs)
             
             # Format results
             results = []
