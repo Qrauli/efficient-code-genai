@@ -1,6 +1,20 @@
 from .base_agent import BaseAgent
 from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 
+class ExpectedOutput(BaseModel):
+    support: float
+    confidence: float
+    satisfactions_str: str
+    violations_str: str
+
+class TestCase(BaseModel):
+    name: str
+    dataframe: Dict[str, List[Any]]
+    explanation: str
+    expected_output: ExpectedOutput
+    
 class RuleTestCaseGenerator(BaseAgent):
     def __init__(self, config):
         system_prompt = """
@@ -62,7 +76,7 @@ Test case/s should:
     "Column_B": [2, 10, 7, 3, 4]
   }},
   "expected_output": {{
-    "support": 0.4,
+    "support": 0.6,
     "confidence": 0.67,
     "satisfactions_str": "{{0, 4}}",
     "violations_str": "{{2}}"
@@ -74,7 +88,7 @@ Test case/s should:
 - Rows 0, 2, and 4 have Column_A > 10 (the rule body applies)
 - Among those, rows 0 and 4 satisfy the rule (Column_B < 5)
 - Row 2 violates the rule (Column_A > 10, but Column_B = 7, which is not < 5)
-- Support = 2/5 = 0.4 (2 satisfying rows out of 5 total rows)
+- Support = 3/5 = 0.6 (3 rows involved in the rule)
 - Confidence = 2/3 = 0.67 (2 satisfying rows out of 3 rows where the body applies)
 
 ### Example 2: Multi-Row Functional Dependency Rule
@@ -88,9 +102,9 @@ Test case/s should:
     "Manager": ["Smith", "Johnson", "Smith", "Wilson", "Davis"]
   }},
   "expected_output": {{
-    "support": 0.8,
-    "confidence": 0.5,
-    "satisfactions_str": "{{(('Department', 'Sales')): {{('Manager', 'Smith'): [0, 2]}}}}",
+    "support": 1,
+    "confidence": 0.66,
+    "satisfactions_str": "{{(('Department', 'Sales')): {{('Manager', 'Smith'): [0, 2]}}, (('Department', 'Marketing')): {{('Manager', 'Davis'): [4]}}}}",
     "violations_str": "{{(('Department', 'Engineering')): {{('Manager', 'Johnson'): [1], ('Manager', 'Wilson'): [3]}}}}"
   }}
 }}
@@ -100,9 +114,9 @@ Test case/s should:
 - We have 2 groups where the rule applies (Sales and Engineering departments each appear multiple times)
 - Sales group (rows 0, 2) has consistent Manager (Smith), so it satisfies the rule
 - Engineering group (rows 1, 3) has different Managers (Johnson, Wilson), so it violates the rule
-- Marketing only appears once, so it's not relevant for this rule
-- Support = 0.8 (4 out of 5 rows are involved in the rule - either in satisfactions or violations)
-- Confidence = 0.5 (1 satisfying group out of 2 total groups)
+- Marketing only appears once, so it is satisfiying by default
+- Support = 1 (5 out of 5 rows are involved in the rule - either in satisfactions or violations)
+- Confidence = 0.66 (2 satisfying group out of 3 total groups)
 
 ### Example 3: Uniqueness Constraint Rule
 **Rule Description**: The combination of ProductID and StoreID should be unique.
@@ -115,8 +129,8 @@ Test case/s should:
     "StoreID": [1, 2, 2, 1, 2]
   }},
   "expected_output": {{
-    "support": 0.6,
-    "confidence": 0.67,
+    "support": 1,
+    "confidence": 0.75,
     "satisfactions_str": "{{(('ProductID', 101), ('StoreID', 1)): {{'unique_record': 0}}, (('ProductID', 101), ('StoreID', 2)): {{'unique_record': 2}}, (('ProductID', 103), ('StoreID', 1)): {{'unique_record': 3}}}}",
     "violations_str": "{{(('ProductID', 102), ('StoreID', 2)): {{'duplicates': [1, 4]}}}}"
   }}
@@ -128,38 +142,36 @@ Test case/s should:
 - But (102,2) appears twice (rows 1 and 4), violating the uniqueness constraint
 - Rows 0, 2, 3 contain unique combinations
 - Rows 1 and 4 are involved in the violation (same combination)
-- Support = 0.6 (unique combinations / total rows = 3/5)
+- Support = 1 (5 out of 5 rows are involved in the rule - either in satisfactions or violations)
 - Confidence = 0.75 (unique combinations / total unique combinations = 3/4)
 
 I want you to return {num_test_cases} test cases in a structured JSON format that can be easily parsed:
 
 ```json
-{{
-  "test_cases": [
-    {{
-      "name": "Test Case 1",
-      "dataframe": {{
-        "column1": [column1_values],
-        "column2": [column2_values],
-        ...
-      }},
-      "explanation": "Detailed explanation of why these values are expected detailing why certain rows are included in satisfactions or violations according to the rule",
-      "expected_output": {{
-        "support": 0.X,
-        "confidence": 0.Y,
-        "satisfactions_str": "string representation of the satisfactions structure",
-        "violations_str": "string representation of the violations structure"
-      }}
+[
+  {{
+    "name": "Test Case 1",
+    "dataframe": {{
+      "column1": [column1_values],
+      "column2": [column2_values],
+      ...
     }},
-    {{
-      "name": "Test Case 2",
-      "dataframe": {{...}},
-      "explanation": "...",
-      "expected_output": {{...}}
-    }},
-    ...
-  ]
-}}
+    "explanation": "Consise and clear explanation of why these values are expected detailing why certain rows are included in satisfactions or violations according to the rule",
+    "expected_output": {{
+      "support": 0.X,
+      "confidence": 0.Y,
+      "satisfactions_str": "string representation of the satisfactions structure",
+      "violations_str": "string representation of the violations structure"
+    }}
+  }},
+  {{
+    "name": "Test Case 2",
+    "dataframe": {{...}},
+    "explanation": "...",
+    "expected_output": {{...}}
+  }},
+  ...
+]
 ```
 
 IMPORTANT: 
@@ -179,7 +191,7 @@ IMPORTANT:
 """
         
         # Create a JSON output parser
-        json_parser = JsonOutputParser()
+        json_parser = JsonOutputParser(pydantic_object=List[TestCase])
         
         chain = self._create_chain(
             template=template,
@@ -193,9 +205,9 @@ IMPORTANT:
             "dataframe_info": dataframe_info or "",
             "num_test_cases": num_test_cases
         })
-        
+                
         return {
-            "test_cases": result.get("test_cases", []),
+            "test_cases": result,
             "metadata": {
                 "agent": self.name,
                 "rule_description": rule_description,

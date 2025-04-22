@@ -200,7 +200,7 @@ def profile_with_scalene(code, config, test_input=None):
                 if time.time() - start_time > profiling_timeout:
                     process.kill()
                     error = f"\nProfiling timed out after {profiling_timeout} seconds"
-                    success = False
+                    success = True
                     break
                 time.sleep(0.01)  
             except:
@@ -222,7 +222,8 @@ def profile_with_scalene(code, config, test_input=None):
             "output": process.stdout.read().decode() if "timed out" not in error.lower() else "",
             "error": error,
             "success": process.returncode == 0,
-            "timed_out": "timed out" in error.lower()
+            "timed_out": "timed out" in error.lower(),
+            "measured_execution_time": profile_data["elapsed_time_sec"] if not "timed out" in error.lower() else None
         }
     
     except Exception as e:

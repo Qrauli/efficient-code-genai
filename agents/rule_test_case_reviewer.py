@@ -1,5 +1,27 @@
 from .base_agent import BaseAgent
 from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+
+# Define Pydantic models for structured output validation
+class CorrectedTestCaseValues(BaseModel):
+    support: Optional[float] = None
+    confidence: Optional[float] = None
+    satisfactions_indexes: Optional[List[int]] = None
+    violations_indexes: Optional[List[int]] = None
+    satisfactions_str: Optional[str] = None
+    violations_str: Optional[str] = None
+
+class CorrectedTestCase(BaseModel):
+    test_case_index: int
+    corrected_values: CorrectedTestCaseValues
+    explanation: str
+
+class ReviewAnalysisOutput(BaseModel):
+    code_fix_approach: Optional[str] = Field(None, description="Detailed description of code problems and approach to fixing the code if needed")
+    corrected_test_cases: Optional[List[CorrectedTestCase]] = Field(None, description="List of test cases with corrected values if test cases were incorrect")
+    fix_code: bool = Field(False, description="Indicates if the code needs fixing")
+    fix_test_cases: bool = Field(False, description="Indicates if the test cases need fixing")
 
 class RuleTestCaseReviewer(BaseAgent):
     def __init__(self, config):
@@ -67,22 +89,18 @@ Please provide your analysis in the following structured format:
     "corrected_test_cases": [
         {{
             "test_case_index": 0,
+            "explanation": "Consise and clear explanation of why these values are expected detailing why certain rows are included in satisfactions or violations according to the rule",
             "corrected_values": {{
                 "support": 0.X,
                 "confidence": 0.Y,
-                "satisfactions_indexes": [list of row indexes],
-                "violations_indexes": [list of row indexes],
                 "satisfactions_str": "string representation of the satisfactions structure",
                 "violations_str": "string representation of the violations structure"
-            }},
-            "explanation": "New explanation of why the correct values are expected focusing on satisfactions and violations according to the rule"
+            }}
         }},
         ...
     ],
-    "recommendations": {{
-        "fix_code": true|false,
-        "fix_test_cases": true|false
-    }}
+    "fix_code": true|false // Indicates if the code needs fixing
+    "fix_test_cases": true|false // Indicates if the test cases need fixing
 }}
 ```
 
@@ -94,7 +112,7 @@ IMPORTANT:
 - Only include "code_fix_approach" if you found actual problems in the code
 - Only include "corrected_test_cases" if you found actual problems in the test cases
 - If either "code_fix_approach" or "corrected_test_cases" would be empty, omit that key entirely from your response
-- At least one of "fix_code" or "fix_test_cases" must be true in the recommendations since the test cases are failing
+- At least one of "fix_code" or "fix_test_cases" must be true since the test cases are failing
 - The indexes present in satisfactions_str and satisfactions_indexes should match, and the same for violations_str and violations_indexes
 """
         
@@ -128,9 +146,11 @@ IMPORTANT:
         if result and "corrected_test_cases" in result and result["corrected_test_cases"]:
             cleaned_result["corrected_test_cases"] = result["corrected_test_cases"]
             
-        # Always include recommendations if present
-        if result and "recommendations" in result:
-            cleaned_result["recommendations"] = result["recommendations"]
+        if result and "fix_code" in result:
+            cleaned_result["fix_code"] = result["fix_code"]
+            
+        if result and "fix_test_cases" in result:
+            cleaned_result["fix_test_cases"] = result["fix_test_cases"]
         
         return {
             "analysis": cleaned_result,
@@ -157,7 +177,7 @@ IMPORTANT:
             if result.get("success", False):
                 continue  # Skip successful test cases
 
-            formatted += f"## test case index: {i}\n\n"
+            formatted += f"## test case index: {result.get('test_case_index')}\n\n"
             """
             # Add test dataframe
             test_data = result.get("test_data", {})

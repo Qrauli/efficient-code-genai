@@ -94,6 +94,12 @@ def _create_dataframe_sample(df):
     # for col in df.columns:
     #     formatted_sample += f"- {col}\n"
     
+    # Add number of distinct values per column
+    formatted_sample += "\n\nNumber of distinct values per column:\n"
+    distinct_counts = df.nunique(dropna=False)
+    for col in df.columns:
+        formatted_sample += f"- {col}: {distinct_counts[col]}\n"
+    
     return formatted_sample
 
 def clean_json_output(text):
@@ -139,6 +145,9 @@ Common Improvement Recommendations:
 6. Avoid lambda functions in groupby() and apply() methods. Instead, use built-in functions or vectorized operations whenever possible.
 7. Pandas has optimized operations based on indices, allowing for faster lookup or merging tables based on indices. Single lookups using indices outperform other methods with great margin. When retrieving a single value, using .at[] is faster than using .loc[]. Setting indexes on columns used for grouping might speed up groupby operations.
 8. Try to combine multiple operations into a single pass through the data. For example, instead of grouping multiple times on different columns, group once and aggregate all necessary columns in that single pass.
+9. Try filtering DataFrames with boolean masks for better performance.
+10. Avoid manual unique combination tracking and manual index collection; let pandas handle with/during grouping.
+11. Avoid filtering the DataFrame in loops and nested grouping; instead, process groups directly
 """
 # 7. You can use the '.values' attribute or the '.to_numpy()' to return the underlying NumPy array and perform vectorized calculations directly on the array.
 
@@ -165,4 +174,7 @@ Common Mistakes to Avoid When You Generate Code:
 17. Keep the keys used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, contextually relevant based on the column names.
 18. Do not use libraries other than pandas and numpy that are not available in the standard library.
 19. Do not write unfinished code, make sure that the code is complete and also don't use auxiliary functions that are not defined in the code.
+20. Do not define variables and constants outside the main function.
+21. Only reference varibles after they are defined/assigned.
+22. Some columns in the DataFrame might be of type string or represented as strings, but they are not actually strings, so convert them to the appropriate type before using them in the code.
 """

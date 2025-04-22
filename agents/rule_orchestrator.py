@@ -66,16 +66,48 @@ class RuleOrchestrator:
         """
         try:
             results_history = []
+            profiling_history = []  # Add this before the optimization loop
             
             # Use a default rule_id if not provided
             function_name = f"execute_rule{rule_id}" if rule_id is not None else "execute_rule"
             
+            # Initialize dataframe info once for reuse
+            working_df = dataframe
+            initial_sample_size = sample_size
+            current_sample_size = initial_sample_size
+            
+            if current_sample_size and len(dataframe) > current_sample_size:
+                working_df = dataframe.sample(current_sample_size, random_state=42)
+            
+            # Create dataframe info once for reuse
+            dataframe_info = _create_dataframe_sample(working_df)
+            
+            # Phase 0: Analyze rule format and determine output structure - do this only once
+            format_analysis_result = self.rule_format_analyzer.process(
+                rule_description, 
+                dataframe_info=dataframe_info
+            )
+            
+            # Get the rule format as text directly from the result
+            rule_format = format_analysis_result.get("rule_format", "")
+            results_history.append({"step": "format_analysis", "result": format_analysis_result})
+
+            # Phase 0.5: Generate test cases - only once
+            test_case_result = self.test_case_generator.process(
+                rule_description,
+                rule_format,
+                dataframe_info=dataframe_info
+            )
+            test_cases = test_case_result.get("test_cases", [])
+            results_history.append({"step": "test_case_generation", "result": test_case_result})
+            
             # Restart counter
             restart_count = 0
             
+            # Start generating code with potential restarts
             while restart_count <= max_restarts:  # Allow initial run + max_restarts
                 if restart_count > 0:
-                    # Log the restart
+                    # Log the restart but don't redo format analysis or test cases
                     results_history.append({
                         "step": f"workflow_restart_{restart_count}",
                         "result": {
@@ -84,42 +116,6 @@ class RuleOrchestrator:
                         }
                     })
                 
-                # Use a sample of the dataframe for development if specified
-                working_df = dataframe
-                initial_sample_size = sample_size
-                current_sample_size = initial_sample_size
-                
-                if current_sample_size and len(dataframe) > current_sample_size:
-                    working_df = dataframe.sample(current_sample_size, random_state=42)
-                
-                # Create dataframe info once for reuse
-                dataframe_info = _create_dataframe_sample(working_df)
-                
-                # Phase 0: Analyze rule format and determine output structure
-                format_analysis_result = self.rule_format_analyzer.process(
-                    rule_description, 
-                    dataframe_info=dataframe_info
-                )
-                
-                # Get the rule format as text directly from the result
-                rule_format = format_analysis_result.get("rule_format", "")
-                results_history.append({"step": "format_analysis", "result": format_analysis_result})
-
-                # Phase 0.5: Generate test cases - now mandatory
-                test_case_result = self.test_case_generator.process(
-                    rule_description,
-                    rule_format,
-                    dataframe_info=dataframe_info
-                )
-                test_cases = test_case_result.get("test_cases", [])
-                results_history.append({"step": "test_case_generation", "result": test_case_result})
-                
-                # Phase 1: Generate initial function with retrieval context, format specifications and test case
-                # generator_context = self._get_relevant_context(
-                #    query=f"pandas dataframe function to evaluate rule: {rule_description}",
-                #    source_types=["documentation", "code_snippet"]
-                #)
-                generator_context = ""
                 # Add test case explanation to the generator input if available
                 test_case_guidance = ""
                 if test_cases:
@@ -144,6 +140,9 @@ Explanation:
 {first_test_case.get('explanation', '')}
 """
 
+                # Phase 1: Generate initial function with retrieval context, format specifications and test case
+                generator_context = ""
+                
                 generator_result = self.rule_function_generator.process(
                     rule_description, 
                     df_sample=dataframe_info,
@@ -154,11 +153,12 @@ Explanation:
                 )
                 
                 current_code = initial_code = generator_result["code"]
-                results_history.append({"step": "generation", "result": generator_result})
+                results_history.append({"step": f"generation_{restart_count}", "result": generator_result})
                 
                 # Phase 2: Optimization loop
                 iterations = 0
                 last_working_code = None
+                running_code = None
                 should_continue = True
                 test_case_result = None
                 profiling_result = None
@@ -172,15 +172,28 @@ Explanation:
                         test_cases, 
                         function_name=function_name
                     )
-                    results_history.append({"step": f"refinement_{iterations}_test_case", "result": test_case_result})
-                    
+                    results_history.append({"step": f"refinement_{restart_count}_{iterations}_test_case", "result": test_case_result})
+
+                    # If the code runs without exceptions (i.e., no error in any test result), and last_working_code is None,
+                    # set running_code to current_code (even if the output is wrong)
+                    if running_code is None:
+                        test_results = test_case_result.get("test_results", [])
+                        # Check if all test cases executed without raising an exception (i.e., 'error' is None or empty)
+                        all_executed = all(
+                            ("error" not in tr or not tr["error"].startswith("EXCEPTION:")) 
+                            for tr in test_results
+                        )
+                        if all_executed:
+                            running_code = current_code
+
                     # On final restart, check if we should consider partial success
-                    # if restart_count == max_restarts:
                     test_results = test_case_result.get("test_results", [])
                     passed_tests = sum(1 for tr in test_results if tr.get("success", False))
                     total_tests = len(test_results)
                     success_rate = passed_tests / total_tests if total_tests > 0 else 0
                     # Consider it a partial success if at least half of tests pass
+                    if restart_count == max_restarts:
+                        test_percentage = 0.5
                     partial_success = success_rate >= test_percentage
                     test_case_result["success"] = partial_success
                     
@@ -202,19 +215,18 @@ Explanation:
                             rule_format=rule_format,
                             dataframe_info=dataframe_info
                         )
-                        results_history.append({"step": f"refinement_{iterations}_test_review", "result": review_result})
+                        results_history.append({"step": f"refinement_{restart_count}_{iterations}_test_review", "result": review_result})
                         
                         # Extract the analysis from the review result
                         analysis = review_result.get("analysis", {})
                         
                         # Check if there are issues with the code or test cases
-                        code_fix_approach = analysis.get("code_fix_approach", [])
-                        corrected_test_cases = analysis.get("corrected_test_cases", [])
-                        recommendations = analysis.get("recommendations", {})
+                        code_fix_approach = analysis.get("code_fix_approach")
+                        corrected_test_cases = analysis.get("corrected_test_cases")
                         
                         # Determine if we should fix the code, the test cases, or both
-                        fix_code = recommendations.get("fix_code", True)
-                        fix_test_cases = recommendations.get("fix_test_cases", False)
+                        fix_code = analysis.get("fix_code")
+                        fix_test_cases = analysis.get("fix_test_cases")
                         
                         # Case 1: If the test cases need correction
                         if fix_test_cases and corrected_test_cases:
@@ -233,7 +245,7 @@ Explanation:
                                 test_cases, 
                                 function_name=function_name
                             )
-                            results_history.append({"step": f"refinement_{iterations}_test_case_corrected", "result": test_case_result})
+                            results_history.append({"step": f"refinement_{restart_count}_{iterations}_test_case_corrected", "result": test_case_result})
                         
                         # Case 2: If the code needs to be fixed
                         if fix_code and not test_case_result.get("success", False):
@@ -256,7 +268,7 @@ Explanation:
                                 function_name=function_name,
                                 rule_format=rule_format
                             )
-                            results_history.append({"step": f"refinement_{iterations}_correction_{correction_attempt_count}", "result": corrected_result})
+                            results_history.append({"step": f"refinement_{restart_count}_{iterations}_correction_{correction_attempt_count}", "result": corrected_result})
                             
                             # Update code and retry test case in next iteration
                             current_code = corrected_result.get("corrected_code", current_code)
@@ -276,31 +288,48 @@ Explanation:
                     # Step 2: Run profiling if enabled
                     if use_profiling:
                         profiling_result = self.rule_function_generator.execute_and_profile_rule(current_code, working_df, function_name=function_name)
+                        profiling_history.append((current_code, profiling_result))
                         
+                        if profiling_result.get("success", False):
+                            profiling_history.append((current_code, profiling_result))
                         test_log = profiling_result.copy()
                         if "function_results" in test_log: 
                             del test_log["function_results"]
                         if "profile_data" in test_log: 
                             del test_log["profile_data"]
-                        results_history.append({"step": f"refinement_{iterations}_profiling", "result": test_log})
+                        results_history.append({"step": f"refinement_{restart_count}_{iterations}_profiling", "result": test_log})
                         
-                        # Adaptive sampling: If test times out, reduce sample size and retry
-                        """if profiling_result.get("timed_out", False) and current_sample_size > 100:
-                            # Reduce sample size by half and retry
-                            prev_size = current_sample_size
-                            current_sample_size = max(100, current_sample_size // 2)
-                            working_df = dataframe.sample(current_sample_size, random_state=42)
-                            dataframe_info = _create_dataframe_sample(working_df)
-                            
-                            # Log the sample size reduction
-                            results_history.append({
-                                "step": f"refinement_{iterations}_sample_reduction", 
-                                "result": {
-                                    "previous_size": prev_size,
-                                    "new_size": current_sample_size,
-                                    "reason": "Execution timed out during profiling"
-                                }
-                            })"""
+                        # If profiling fails (not just timeout), trigger code correction
+                        if not profiling_result.get("success", True):
+                            correction_attempt_count += 1
+
+                            # Prepare a "profiling failure" test result for correction
+                            profiling_failure_test = {
+                                "test_case_name": "Profiling Run",
+                                "error": profiling_result.get("error", "Profiling failed"),
+                                "success": False
+                            }
+                            # Use the same code correction logic as for test failures
+                            corrected_result = self.code_tester.correct_code(
+                                code=current_code,
+                                problem_description=f"Profiling failed for DataFrame rule evaluation function for: {rule_description}",
+                                test_results=[profiling_failure_test],
+                                dataframe_info=dataframe_info,
+                                function_name=function_name,
+                                rule_format=rule_format
+                            )
+                            results_history.append({"step": f"refinement_{restart_count}_{iterations}_profiling_correction_{correction_attempt_count}", "result": corrected_result})
+
+                            # Update code and retry profiling in next iteration
+                            current_code = corrected_result.get("corrected_code", current_code)
+
+                            # If too many correction attempts, break to restart
+                            if correction_attempt_count >= max_correction_attempts + 1 and last_working_code is None:
+                                restart_count += 1
+                                break
+
+                            iterations += 1
+                            continue
 
                     last_working_code = current_code
                     
@@ -333,7 +362,7 @@ Explanation:
                         review_input["profiling_data"] = profiling_data
 
                     review_result = self.code_reviewer.process(review_input)
-                    results_history.append({"step": f"refinement_{iterations}_review", "result": review_result})
+                    results_history.append({"step": f"refinement_{restart_count}_{iterations}_review", "result": review_result})
                     
                     # Check if we should terminate optimization based on review
                     should_continue = review_result.get("continue_optimization", True)
@@ -341,7 +370,7 @@ Explanation:
                     if not should_continue:
                         # Reviewer suggests terminating optimization
                         results_history.append({
-                            "step": f"refinement_{iterations}_termination",
+                            "step": f"refinement_{restart_count}_{iterations}_termination",
                             "result": {
                                 "reason": "Reviewer recommended termination",
                                 "optimization_potential": review_result.get("optimization_potential"),
@@ -385,47 +414,58 @@ Explanation:
                     log_optimizer_result = optimizer_result.copy()
                     if "profiling_data" in log_optimizer_result: 
                         del log_optimizer_result["profiling_data"]
-                    results_history.append({"step": f"refinement_{iterations}_optimization", "result": log_optimizer_result})
+                    results_history.append({"step": f"refinement_{restart_count}_{iterations}_optimization", "result": log_optimizer_result})
                     
                     # Update and prepare for next iteration
                     current_code = optimizer_result.get("optimized_code", current_code)
                     iterations += 1
-                    
-                # If we broke out of the inner loop due to correction failures and haven't hit max restarts yet
-                if correction_attempt_count >= max_correction_attempts and last_working_code is None and restart_count <= max_restarts:
-                    continue  # Start the next workflow restart
-                    
-                # Run test case validation after optimization to ensure the optimized code still works
-                test_case_result = self.code_tester.test_function_with_testcases(
-                    current_code, 
-                    test_cases, 
-                    function_name=function_name
-                )
-                results_history.append({"step": f"final_validation", "result": test_case_result})
                 
-                # If test case fails after optimization, revert to previous code
-                if not test_case_result.get("success", False) and last_working_code:
-                    current_code = last_working_code
-                    test_case_result["success"] = True
-                    results_history.append({"step": f"final_reverted_code", "result": test_case_result})
+                # If we completed optimization or have working code, we can exit the restart loop
+                if last_working_code is not None or (test_case_result and test_case_result.get("success", False)):
+                    break
+                
+            # Run test case validation after optimization to ensure the optimized code still works
+            test_case_result = self.code_tester.test_function_with_testcases(
+                current_code, 
+                test_cases, 
+                function_name=function_name
+            )
+            results_history.append({"step": f"final_validation", "result": test_case_result})
             
-                # Store the successful code for future retrieval if enabled
-                if self.use_retrieval and test_case_result and test_case_result.get("success", False):
-                    self.retriever.add_generated_code(
-                        code=current_code,
-                        metadata={
-                            "description": f"Optimized function for rule: {rule_description}",
-                            "tags": ["rule_evaluation", "dataframe", "optimized"]
-                        }
-                    )
-                
-                # If we've successfully generated code or reached maximum restarts, exit the loop
-                break
+            # If test case fails after optimization, revert to previous code
+            if not test_case_result.get("success", False) and last_working_code:
+                current_code = last_working_code
+                test_case_result["success"] = True
+                results_history.append({"step": f"final_reverted_code", "result": test_case_result})
+            elif not test_case_result.get("success", False) and running_code:
+                current_code = running_code
+                test_case_result["success"] = True
+                results_history.append({"step": f"final_reverted_code_running", "result": test_case_result})
+            
+            # Select the fastest code based on profiling history
+            fastest_code = current_code  # Default to latest
+            min_time = float('inf')
+            for code, prof in profiling_history:
+                if prof and not prof.get("timed_out", False):
+                    exec_time = prof.get("measured_execution_time")
+                    if exec_time is not None and exec_time < min_time:
+                        min_time = exec_time
+                        fastest_code = code
+
+            # Store the successful code for future retrieval if enabled
+            if self.use_retrieval and test_case_result and test_case_result.get("success", False):
+                self.retriever.add_generated_code(
+                    code=fastest_code,
+                    metadata={
+                        "description": f"Optimized function for rule: {rule_description}",
+                        "tags": ["rule_evaluation", "dataframe", "optimized"]
+                    }
+                )
             
             return {
-                "code": current_code,
+                "code": fastest_code,
                 "summary": "Rule function generation completed successfully." if (test_case_result and test_case_result.get("success", False)) else "Rule function generation failed. See error details in the execution history.",
-                "initial_code": initial_code,
+                "initial_code": initial_code if 'initial_code' in locals() else None,
                 "results_history": results_history,
                 "function_name": function_name,
                 "restart_count": restart_count,

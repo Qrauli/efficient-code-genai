@@ -1,5 +1,13 @@
 from .base_agent import BaseAgent
 from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel  # Added import
+
+# Define Pydantic model for the expected output
+class RuleFormatAnalysisOutput(BaseModel):
+    support_calculation: str
+    confidence_calculation: str
+    satisfactions_format: str
+    violations_format: str
 
 class RuleFormatAnalyzer(BaseAgent):
     def __init__(self, config):
@@ -37,7 +45,7 @@ Analyze the provided rule and determine:
 ## Fundamental Concepts for Rule Evaluation:
 
 ### Rule Components:
-- **Body (Antecedent)**: The condition part of a rule that must be true for the rule to be applicable. This is the "if" part of the rule. Quite often, there is no body in the rule and the rule is unconditional: e.g., "All values in column A must be unique".
+- **Body (Antecedent)**: The condition part of a rule that must be true for the rule to be applicable. This is the "if" part of the rule, although not every "if" statement is a rule body. Quite often, there is no body in the rule and the rule is unconditional: e.g., "All values in column A must be unique".
 - **Head (Consequent)**: The expected outcome if the body is true. What the rule is asserting should be true.
 
 ## Reference Information on Rule Types:
@@ -58,6 +66,10 @@ Example: "For each CustomerID, all Orders must have the same ShippingAddress"
 - Body: Rows sharing the same CustomerID
 - Head: All ShippingAddress values must be identical within the group
 
+### Non-Group Validation Rule:
+A multi-row rule that does not involve grouping rows but still evaluates relationships between specific rows. 
+Since there is no grouping, the rule is evaluated based on the relationships between the rows directly. Also rows can be part of multiple violations or satisfactions.
+
 ### Group-Validation Rule:
 A multi-row rule that involves grouping rows based on specific column values and evaluating whether certain criteria are satisfied within each group.
 Examples include functional dependencies, unique key constraints, outlier detection, and aggregation constraints.
@@ -70,7 +82,7 @@ Support measures how many rows in the dataset are involved in the rule, relative
 - For rules without a body (unconditional constraints): Support = 1.0
 - For multi-row rules: 
     - Support = (Number of unique rows involved in satisfactions and violations) / (Total number of rows in the dataset)
-        Note that number of groups means number of group_keys
+        Note that number of groups means number of group_keys/groups
     - Steps to Compute Support:
         - Extract all row indexes that appear in both violations and satisfactions.
         - Count the number of unique row indexes.
@@ -84,8 +96,8 @@ Confidence measures how often the rule is satisfied when applied to the dataset.
 - For multi-row rules: 
     - Confidence = (Number of groups in satisfactions) / (Number of groups in violations + Number of groups in satisfactions)
     - Steps to Compute Confidence:
-        - Count the number of group keys in the satisfactions dictionary.
-        - Count the number of group keys in the violations dictionary.
+        - Count the number of group keys in the satisfactions dictionary/list.
+        - Count the number of group keys in the violations dictionary/list.
         - Apply the formula using these counts.
 
 ### Satisfactions and Violations Structure:
@@ -94,11 +106,17 @@ Confidence measures how often the rule is satisfied when applied to the dataset.
 - **Satisfactions**: Set of row indices where the rule is fully satisfied (both body and head are true)
 - **Violations**: Set of row indices where the rule is violated (body is true but head is false)
 
+#### Multi-Row Rules (Non-Group Validation):
+Rules that are not group-validation rules but still involve multiple rows can have a similar structure, but the focus is on the relationships between specific rows rather than groups.
+Since there is no grouping, there are no group keys, and the structure is simpler.
+- **Satisfactions**: List of Sets of row indices where each set represents a group of rows that satisfy the rule.
+- **Violations**: List of Sets of row indices where each set represents a group of rows that violate the rule.
+
 #### Multi-Row Rules (Group-Validation):
 - **Satisfactions**: Dictionary with group identifiers as keys and information about satisfying groups as values
 - **Violations**: Dictionary with group identifiers as keys and information about violating groups as values
 
-A data quality checking rule that applies to multiple rows in each check should have its **violations** and **satisfactions** represented as a dictionary:
+A data quality checking rule that applies to multiple rows and involves grouping rows based on specific column values and evaluating whether certain criteria are satisfied within each group should have its **violations** and **satisfactions** represented as a dictionary:
 
 {{
     group_key: 
@@ -225,20 +243,21 @@ I want you to return your analysis as a JSON object with the following structure
 IMPORTANT: 
 - Make sure to use the exact column names from the DataFrame sample in your explanations
 - The output format explanations should be detailed and clear with specific examples tailored to this rule
-- For multi-row rules, clearly specify how groups should be formed and what keys should be used
+- For multi-row rules (group-validation), clearly specify how groups should be formed and what keys should be used
 - You must be able to extract the row indexes from the satisfactions and violations dictionaries. The nested dictionaries/sets always have row indexes as the leaf nodes/primary values and not other column values.
 - Make sure you check if the rule is conditional or unconditional and adjust the explanations accordingly. Especially mention that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation. 
+- Conditional rules should be mentioned as well, in which case only the rows that satisfy the body of the rule should be present in the satisfactions or violations structures. Rows that do not satisfy the body of the rule should not be present in either structure.
 - Multi-row rules often seem conditional since they work on groups of rows, but single-row groups are also possible and should be present in either the satisfactions or violations. So make sure to mention that single-row groups are also possible and should normally be present in the satisfactions or violations dictionaries.
 - Some rules are formulated in a way that seem more complex than they are. Normally these rules can be reduced to a simpler form. For example, "If rows in question all have the same value in State, then Phone determines AreaCode." can be reduced to "If rows in question all have the same value in State and Phone, then AreaCode should be the same for all rows.". Try to reduce the rule to its simplest form and rely on this simpler form for your analysis.
 - Try to make the group key a tuple of key-value pairs whenever it makes sense. For example, if the rule is about a group of rows with the same value in State and Phone, then the group key should be (("State", "NY"), ("Phone", "1234567890")).
 """
         
-        # Create a JSON output parser
-        json_parser = JsonOutputParser()
+        # Create a JSON output parser with the Pydantic model
+        json_parser = JsonOutputParser(pydantic_object=RuleFormatAnalysisOutput)
         
         chain = self._create_chain(
             template=template,
-            parser=json_parser,
+            parser=json_parser,  # Pass the configured parser
             run_name="RuleFormatAnalyzer"
         )
         
@@ -248,6 +267,7 @@ IMPORTANT:
         })
         
         # Convert the output format to a text representation for backward compatibility
+        # Access attributes directly from the Pydantic object
         rule_format = f"""# Support Calculation
 {result.get('support_calculation', '')}
 

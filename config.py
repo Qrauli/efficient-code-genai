@@ -8,7 +8,7 @@ class Config:
     # LLM Configuration
     LLM_API_KEY = os.getenv("LLM_API_KEY")
     LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-    LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-001")
+    LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.5-flash-preview")
     
     # Retrieval System Configuration
     VECTOR_DB_CONNECTION = os.getenv("VECTOR_DB_CONNECTION", "chroma://localhost:8000")
@@ -20,7 +20,7 @@ class Config:
     AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
     
     # Evaluation Configuration
-    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "20"))
+    TIMEOUT_SECONDS = int(os.getenv("TIMEOUT_SECONDS", "18"))
     MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "1024"))
     
     # Paths

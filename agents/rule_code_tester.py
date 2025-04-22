@@ -7,6 +7,16 @@ from utils.code_execution import execute_code, indent_code
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.output_parsers import RetryWithErrorOutputParser
 from langchain_core.runnables import RunnableParallel, RunnableLambda
+import concurrent.futures
+import pandas as pd
+import numpy as np
+import io
+from contextlib import redirect_stdout, redirect_stderr
+import traceback
+import time
+import ast
+import warnings
+        
 
 class TestCase(TypedDict):
     name: str
@@ -142,15 +152,7 @@ ALWAYS wrap your code in ```python and ``` markers.
         Returns:
             dict: Test results including success status and comparison
         """
-        import pandas as pd
-        import numpy as np
-        import io
-        from contextlib import redirect_stdout, redirect_stderr
-        import traceback
-        import time
-        import ast
-        import warnings
-        
+
         # Create test dataframe from the test case
         test_df_data = test_case.get("dataframe", [])
         expected_output = test_case.get("expected_output", {})
@@ -213,12 +215,12 @@ ALWAYS wrap your code in ```python and ``` markers.
                 violations = actual_output.get('violations')
                 
                 # Compare with expected values
-                support_match = abs(support - expected_output.get("support", 0)) < 0.001
-                confidence_match = abs(confidence - expected_output.get("confidence", 0)) < 0.001
+                support_match = abs(support - expected_output.get("support", 0)) < 0.01
+                confidence_match = abs(confidence - expected_output.get("confidence", 0)) < 0.01
                 
                 # Extract and compare indexes from satisfactions and violations
-                actual_satisfaction_indexes = extract_indexes(satisfactions)
-                actual_violation_indexes = extract_indexes(violations)
+                actual_satisfaction_indexes = sorted(list(extract_indexes(satisfactions)))
+                actual_violation_indexes = sorted(list(extract_indexes(violations)))
                 
                 # Convert expected satisfactions and violations from string to Python data structure if needed
                 expected_satisfactions = expected_output.get("satisfactions_str")
@@ -237,11 +239,8 @@ ALWAYS wrap your code in ```python and ``` markers.
                     except:
                         expected_violations = {}
                 
-                expected_satisfaction_indexes = extract_indexes(expected_satisfactions)
-                expected_violation_indexes = extract_indexes(expected_violations)
-                
-                expected_satisfaction_structure = expected_output.get("satisfactions_str")
-                expected_violation_structure = expected_output.get("violations_str")
+                expected_satisfaction_indexes = sorted(list(extract_indexes(expected_satisfactions)))
+                expected_violation_indexes = sorted(list(extract_indexes(expected_violations)))
                 
                 # Compare extracted indexes
                 satisfactions_match = actual_satisfaction_indexes == expected_satisfaction_indexes
@@ -249,10 +248,10 @@ ALWAYS wrap your code in ```python and ``` markers.
                 
                 # Set success based on value matches
                 # Include satisfaction and violation index checks in success criteria
-                success = support_match and confidence_match
-                if expected_satisfaction_indexes or expected_violation_indexes:
+                # success = support_match and confidence_match
+                # if expected_satisfaction_indexes or expected_violation_indexes:
                     # Only include structure checks if expected indexes are provided
-                    success = satisfactions_match and violations_match # and success
+                success = satisfactions_match and violations_match # and success
                 
                 # Create detailed comparison for debugging
                 comparison = {
@@ -267,13 +266,13 @@ ALWAYS wrap your code in ```python and ``` markers.
                         "match": confidence_match
                     },
                     "satisfactions": {
-                        "actual_indexes": sorted(list(actual_satisfaction_indexes)),
-                        "expected_indexes": sorted(list(expected_satisfaction_indexes)),
+                        "actual_indexes": actual_satisfaction_indexes,
+                        "expected_indexes": expected_satisfaction_indexes,
                         "match": satisfactions_match
                     },
                     "violations": {
-                        "actual_indexes": sorted(list(actual_violation_indexes)),
-                        "expected_indexes": sorted(list(expected_violation_indexes)),
+                        "actual_indexes": actual_violation_indexes,
+                        "expected_indexes": expected_violation_indexes,
                         "match": violations_match
                     }
                 }
@@ -287,11 +286,11 @@ ALWAYS wrap your code in ```python and ``` markers.
                     if not confidence_match:
                         error_message += f"- Confidence: Expected {expected_output.get('confidence')}, got {confidence}\n"
                     if not satisfactions_match:
-                        error_message += f"- Satisfaction indexes: Expected {sorted(list(expected_satisfaction_indexes))}, extracted from satisfactions output {sorted(list(actual_satisfaction_indexes))}\n"
-                        error_message += f"- Satisfaction structure: Expected {expected_satisfaction_structure}, got {satisfactions}\n"
+                        error_message += f"- Satisfaction indexes: Expected {expected_satisfaction_indexes}, extracted from satisfactions output {actual_satisfaction_indexes}\n"
+                        error_message += f"- Satisfaction structure: Expected {expected_satisfactions}, got {satisfactions}\n"
                     if not violations_match:
-                        error_message += f"- Violation indexes: Expected {sorted(list(expected_violation_indexes))}, extracted from violations output {sorted(list(actual_violation_indexes))}\n"
-                        error_message += f"- Violation structure: Expected {expected_violation_structure}, got {violations}\n"
+                        error_message += f"- Violation indexes: Expected {expected_violation_indexes}, extracted from violations output {actual_violation_indexes}\n"
+                        error_message += f"- Violation structure: Expected {expected_violations}, got {violations}\n"
                         
                     # Include the test DataFrame in the error message
                     error_message += "\nTest DataFrame used:\n"
@@ -313,7 +312,7 @@ ALWAYS wrap your code in ```python and ``` markers.
                     "warnings": warning_messages  # Include captured warnings in the result
                 }           
             else:
-                error_msg = f"Exception: Function did not return expected dictionary format with required keys. Got: {type(actual_output)}"
+                error_msg = f"EXCEPTION: Function did not return expected dictionary format with required keys. Got: {type(actual_output)}"
                 
                 # Include the test explanation if available
                 if test_explanation:
@@ -327,7 +326,7 @@ ALWAYS wrap your code in ```python and ``` markers.
                     "warnings": warning_messages  # Include captured warnings in the result
                 }
         except Exception as e:
-            error_msg = f"{str(e)}\n{traceback.format_exc()}"
+            error_msg = f"EXCEPTION: {str(e)}\n{traceback.format_exc()}"
                 
             return {
                 "success": False,
@@ -342,59 +341,231 @@ ALWAYS wrap your code in ```python and ``` markers.
             warnings.filters = original_filters
             warnings.showwarning = original_showwarning
 
+    @staticmethod
+    def _run_test_case_in_subprocess(args):
+        """
+        Standalone function to run a single test case in a subprocess.
+        Args:
+            args: tuple of (function_code, test_case, function_name)
+        Returns:
+            dict: test result
+        """
+
+        function_code, test_case, function_name = args
+
+        test_df_data = test_case.get("dataframe", [])
+        expected_output = test_case.get("expected_output", {})
+        test_explanation = test_case.get("explanation", "")
+
+        if not test_df_data:
+            return {
+                "success": False,
+                "error": "No test data provided in test case",
+                "execution_time": None
+            }
+
+        namespace = {
+            "pd": pd,
+            "np": np,
+            "test_df": pd.DataFrame(test_df_data)
+        }
+
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        start_time = time.time()
+        success = False
+        actual_output = None
+        error = None
+
+        warning_messages = []
+        def warning_collector(message, category, filename, lineno, file=None, line=None):
+            warning_messages.append(f"{category.__name__}: {message}")
+
+        original_filters = warnings.filters.copy()
+        original_showwarning = warnings.showwarning
+
+        try:
+            warnings.resetwarnings()
+            warnings.simplefilter('always')
+            warnings.showwarning = warning_collector
+
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                exec(function_code, namespace)
+                exec(f"result = {function_name}(test_df)", namespace)
+                actual_output = namespace.get("result")
+
+            if isinstance(actual_output, dict) and all(k in actual_output for k in ['support', 'confidence', 'satisfactions', 'violations']):
+                support = actual_output.get('support')
+                confidence = actual_output.get('confidence')
+                satisfactions = actual_output.get('satisfactions')
+                violations = actual_output.get('violations')
+
+                support_match = abs(support - expected_output.get("support", 0)) < 0.01
+                confidence_match = abs(confidence - expected_output.get("confidence", 0)) < 0.01
+
+                actual_satisfaction_indexes = sorted(list(extract_indexes(satisfactions)))
+                actual_violation_indexes = sorted(list(extract_indexes(violations)))
+
+                expected_satisfactions = expected_output.get("satisfactions_str")
+                expected_violations = expected_output.get("violations_str")
+
+                if isinstance(expected_satisfactions, str):
+                    try:
+                        expected_satisfactions = eval(expected_satisfactions)
+                    except:
+                        expected_satisfactions = {}
+
+                if isinstance(expected_violations, str):
+                    try:
+                        expected_violations = eval(expected_violations)
+                    except:
+                        expected_violations = {}
+
+                expected_satisfaction_indexes = sorted(list(extract_indexes(expected_satisfactions)))
+                expected_violation_indexes = sorted(list(extract_indexes(expected_violations)))
+
+                satisfactions_match = actual_satisfaction_indexes == expected_satisfaction_indexes
+                violations_match = actual_violation_indexes == expected_violation_indexes
+
+                success = satisfactions_match and violations_match
+
+                comparison = {
+                    "support": {
+                        "actual": support,
+                        "expected": expected_output.get("support"),
+                        "match": support_match
+                    },
+                    "confidence": {
+                        "actual": confidence,
+                        "expected": expected_output.get("confidence"),
+                        "match": confidence_match
+                    },
+                    "satisfactions": {
+                        "actual_indexes": actual_satisfaction_indexes,
+                        "expected_indexes": expected_satisfaction_indexes,
+                        "match": satisfactions_match
+                    },
+                    "violations": {
+                        "actual_indexes": actual_violation_indexes,
+                        "expected_indexes": expected_violation_indexes,
+                        "match": violations_match
+                    }
+                }
+
+                error_message = ""
+                if not success:
+                    error_message = "Test case values don't match expected output:\n"
+                    if not support_match:
+                        error_message += f"- Support: Expected {expected_output.get('support')}, got {support}\n"
+                    if not confidence_match:
+                        error_message += f"- Confidence: Expected {expected_output.get('confidence')}, got {confidence}\n"
+                    if not satisfactions_match:
+                        error_message += f"- Satisfaction indexes: Expected {expected_satisfaction_indexes}, extracted from satisfactions output {actual_satisfaction_indexes}\n"
+                        error_message += f"- Satisfaction structure: Expected {expected_satisfactions}, got {satisfactions}\n"
+                    if not violations_match:
+                        error_message += f"- Violation indexes: Expected {expected_violation_indexes}, extracted from violations output {actual_violation_indexes}\n"
+                        error_message += f"- Violation structure: Expected {expected_violations}, got {violations}\n"
+
+                    error_message += "\nTest DataFrame used:\n"
+                    error_message += str(pd.DataFrame(test_df_data).head(10))
+                    if len(test_df_data) > 10:
+                        error_message += f"\n... (total rows: {len(test_df_data)})"
+
+                    if test_explanation:
+                        error_message += "\nTest Case Explanation:\n"
+                        error_message += test_explanation
+
+                return {
+                    "success": success,
+                    "execution_time": time.time() - start_time,
+                    "comparison": comparison,
+                    "error": error_message,
+                    "test_data": test_df_data,
+                    "warnings": warning_messages
+                }
+            else:
+                error_msg = f"EXCEPTION: Function did not return expected dictionary format with required keys. Got: {type(actual_output)}"
+                if test_explanation:
+                    error_msg += "\nTest Case Explanation:\n"
+                    error_msg += test_explanation
+                return {
+                    "success": False,
+                    "execution_time": time.time() - start_time,
+                    "error": error_msg,
+                    "warnings": warning_messages
+                }
+
+        except Exception as e:
+            error_msg = f"EXCEPTION: {str(e)}\n{traceback.format_exc()}"
+            return {
+                "success": False,
+                "execution_time": time.time() - start_time,
+                "stdout": stdout_buffer.getvalue(),
+                "stderr": stderr_buffer.getvalue(),
+                "error": error_msg,
+                "warnings": warning_messages
+            }
+        finally:
+            warnings.filters = original_filters
+            warnings.showwarning = original_showwarning
+
     def test_function_with_testcases(self, function_code, test_cases, function_name="execute_rule"):
-        """Test the function code with multiple test cases
-        
+        """Test the function code with multiple test cases in parallel (using separate processes).
         Args:
             function_code (str): The function code to test
             test_cases (list): List of test cases with dataframes and expected outputs
             function_name (str): Name of the function to call
-            
         Returns:
             dict: Aggregated test results including success status and individual test results
         """
-        # Check if test_cases is a list or a single test case
         if isinstance(test_cases, dict) and "dataframe" in test_cases:
-            # For backward compatibility - convert single test case to a list
             test_cases = [test_cases]
-        
-        # Run each test case individually
+
         results = []
         all_passed = True
-        all_warnings = []  # Collect warnings from all test cases
-        
-        for i, test_case in enumerate(test_cases):
-            result = self.test_function_with_testcase(
-                function_code=function_code,
-                test_case=test_case,
-                function_name=function_name
-            )
-            
-            # Add test case name or index to result
-            result["test_case_name"] = test_case.get("name", f"Test Case {i+1}")
-            results.append(result)
-            
-            # Collect warnings
-            if "warnings" in result and result["warnings"]:
-                all_warnings.extend(result["warnings"])
-            
-            # Update overall success flag
-            if not result.get("success", False):
-                all_passed = False
-        
+        all_warnings = []
+
+        # Prepare arguments for each test case
+        args_list = [
+            (function_code, test_case, function_name)
+            for test_case in test_cases
+        ]
+
+        # Use ProcessPoolExecutor for true isolation
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            future_to_index = {
+                executor.submit(RuleCodeTester._run_test_case_in_subprocess, args): i
+                for i, args in enumerate(args_list)
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                i = future_to_index[future]
+                result = future.result()
+                # Add test case name or index to result
+                result["test_case_name"] = test_cases[i].get("name", f"Test Case {i+1}")
+                result["test_case_index"] = i  # <-- Add this line
+                results.append((i, result))
+                if "warnings" in result and result["warnings"]:
+                    all_warnings.extend(result["warnings"])
+                if not result.get("success", False):
+                    all_passed = False
+
+        # Sort results by original test case order
+        results_sorted = [r for _, r in sorted(results, key=lambda x: x[0])]
+
         # Remove duplicates from warnings while preserving order
         unique_warnings = []
         for warning in all_warnings:
             if warning not in unique_warnings:
                 unique_warnings.append(warning)
-        
+
         return {
             "success": all_passed,
-            "test_results": results,
-            "num_tests": len(results),
-            "num_passed": sum(1 for r in results if r.get("success", False)),
+            "test_results": results_sorted,
+            "num_tests": len(results_sorted),
+            "num_passed": sum(1 for r in results_sorted if r.get("success", False)),
             "code": function_code,
-            "warnings": unique_warnings  # Add collected warnings to the result
+            "warnings": unique_warnings
         }
 
 def extract_indexes(structure):

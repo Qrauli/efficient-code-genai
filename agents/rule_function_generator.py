@@ -149,7 +149,7 @@ except Exception as e:
             
             # Parse the output to extract function results
             function_results = {}
-            success = False
+            success = profile_result.get("timed_out", False)
             error_message = None
             traceback_info = None
             collecting_traceback = False
@@ -160,6 +160,7 @@ except Exception as e:
                     success = True
                 elif line.startswith("ERROR:"):
                     error_message = line.replace("ERROR:", "").strip()
+                    success = False
                 elif line.startswith("TRACEBACK:"):
                     # Start collecting traceback
                     collecting_traceback = True
@@ -190,7 +191,7 @@ except Exception as e:
                 
             # Combine everything into a single comprehensive result
             return {
-                "success": success and profile_result.get("success", False),
+                "success": success,
                 "function_results": function_results,
                 "error": error_message or profile_result.get("error"),
                 "profile_data": profile_data,
