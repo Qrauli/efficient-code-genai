@@ -85,11 +85,10 @@ flowchart TD
         CodeOptimizer -.->|Optimization Query| ContextRetriever
         ContextRetriever -.->|Relevant Context| GenCode
         ContextRetriever -.->|Optimization Context| CodeOptimizer
-        FinalSuccess -.->|Store Success| ContextRetriever
     
         RestartCheck{Max Restarts?}
         RestartCheck -->|No| Restart[Restart Workflow]
-        Restart --> FormatAnalyzer
+        Restart --> GenCode
         RestartCheck -->|Yes| Failure[Return Error/Last Code]
  
     end
