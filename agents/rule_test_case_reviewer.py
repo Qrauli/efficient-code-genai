@@ -120,7 +120,7 @@ IMPORTANT:
         formatted_test_results = self._format_test_results(test_results)
         
         # Create a JSON output parser
-        json_parser = JsonOutputParser()
+        json_parser = JsonOutputParser(pydantic_object=ReviewAnalysisOutput)
         
         chain = self._create_chain(
             template=template,
