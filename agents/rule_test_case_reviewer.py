@@ -111,6 +111,7 @@ IMPORTANT:
 - Don't guess - analyze the code execution carefully to identify actual issues
 - Only include "code_fix_approach" if you found actual problems in the code
 - Only include "corrected_test_cases" if you found actual problems in the test cases
+- Make sure the JSON contains no numeric operators when representing the expected output values e.g. 0.5 instead of 1/2
 - If either "code_fix_approach" or "corrected_test_cases" would be empty, omit that key entirely from your response
 - At least one of "fix_code" or "fix_test_cases" must be true since the test cases are failing
 - The indexes present in satisfactions_str and satisfactions_indexes should match, and the same for violations_str and violations_indexes

@@ -9,6 +9,8 @@ from langchain.output_parsers import RegexParser
 from langchain_core.output_parsers import StrOutputParser, BaseOutputParser
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage
+import pandas as pd
+from typing import Union, Dict
 
 class BaseAgent(ABC):
     def __init__(self, config, name, system_prompt):
@@ -79,28 +81,46 @@ class BaseAgent(ABC):
             max_retries=2
         )
 
-def _create_dataframe_sample(df):
-    """Create a representative sample of the DataFrame for the prompt"""
-    # Determine sample size - balance between informativeness and prompt size
-    sample_size = min(3, len(df))
-    sample_df = df.head(sample_size)
-    
-    # Format as a pretty printed table
-    formatted_sample = "DataFrame Sample (returned by df.head(sample_size)):\n"
-    formatted_sample += sample_df.to_string()
-    
-    # Add explicit column information with types
-    # formatted_sample += "\n\nDataFrame Column Names (MUST USE THESE EXACT NAMES):\n"
-    # for col in df.columns:
-    #     formatted_sample += f"- {col}\n"
-    
-    # Add number of distinct values per column
-    formatted_sample += "\n\nNumber of distinct values per column:\n"
-    distinct_counts = df.nunique(dropna=False)
-    for col in df.columns:
-        formatted_sample += f"- {col}: {distinct_counts[col]}\n"
-    
-    return formatted_sample
+def _create_dataframe_sample(df_input: Union[pd.DataFrame, Dict[str, pd.DataFrame]]):
+    """Create a representative sample of the DataFrame(s) for the prompt"""
+    formatted_sample = ""
+
+    if isinstance(df_input, dict):
+        # Handle multiple DataFrames
+        for name, df in df_input.items():
+            formatted_sample += f"--- DataFrame: {name} ---\n"
+            # Determine sample size - balance between informativeness and prompt size
+            sample_size = min(3, len(df))
+            sample_df = df.head(sample_size)
+
+            # Format as a pretty printed table
+            formatted_sample += "DataFrame Sample (returned by df.head(sample_size)):\n"
+            formatted_sample += sample_df.to_string()
+
+            # Add number of distinct values per column
+            formatted_sample += "\n\nNumber of distinct values per column:\n"
+            distinct_counts = df.nunique(dropna=False)
+            for col in df.columns:
+                formatted_sample += f"- {col}: {distinct_counts[col]}\n"
+            formatted_sample += "\n" # Add a separator between DataFrames
+    else:
+        # Handle single DataFrame (existing logic)
+        df = df_input
+        # Determine sample size - balance between informativeness and prompt size
+        sample_size = min(3, len(df))
+        sample_df = df.head(sample_size)
+
+        # Format as a pretty printed table
+        formatted_sample += "DataFrame Sample (returned by df.head(sample_size)):\n"
+        formatted_sample += sample_df.to_string()
+
+        # Add number of distinct values per column
+        formatted_sample += "\n\nNumber of distinct values per column:\n"
+        distinct_counts = df.nunique(dropna=False)
+        for col in df.columns:
+            formatted_sample += f"- {col}: {distinct_counts[col]}\n"
+
+    return formatted_sample.strip() # Remove trailing newline if any
 
 def clean_json_output(text):
     """Remove code block markers from the output before JSON parsing"""
@@ -149,7 +169,6 @@ Common Improvement Recommendations:
 10. Avoid manual unique combination tracking and manual index collection; let pandas handle with/during grouping.
 11. Avoid filtering the DataFrame in loops and nested grouping; instead, process groups directly
 """
-# 7. You can use the '.values' attribute or the '.to_numpy()' to return the underlying NumPy array and perform vectorized calculations directly on the array.
 
 def common_mistakes_prompt():
     """Prompt for common mistakes in code debugging tasks"""

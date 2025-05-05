@@ -27,6 +27,22 @@ You are an expert rule analysis agent that determines the appropriate structure 
         Returns:
             dict: Rule type and format specification
         """
+        
+        is_multi_df = dataframe_info is not None and "--- DataFrame:" in dataframe_info
+
+        multi_df_instructions = ""
+        if is_multi_df:
+            multi_df_instructions = """
+## Multi-DataFrame Rules Specifics:
+
+The rule involves multiple DataFrames (as indicated by the `--- DataFrame: ---` separators in the sample info):
+- Identify the **primary DataFrame** where the rule's violations or satisfactions are primarily tracked (i.e., which DataFrame's row indices will be stored in the `satisfactions` and `violations` outputs).
+- Many multi-DataFrame rules involve checking references or conditions between a primary DataFrame and one or more secondary DataFrames (e.g., "Column X in DataFrame A must exist in Column Y of DataFrame B").
+- Even with multiple DataFrames, the rule often behaves like a **single-row rule** concerning the *primary* DataFrame. Each row in the primary DataFrame is checked against conditions potentially involving other DataFrames.
+- Clearly state in your `satisfactions_format` and `violations_format` explanations **which DataFrame's indices** are being used.
+- Support and Confidence calculations should generally be based on the rows of the **primary DataFrame** that are subject to the rule's conditions.
+"""
+
         template = """
 # Rule Description
 {rule_description}
@@ -73,6 +89,8 @@ Since there is no grouping, the rule is evaluated based on the relationships bet
 ### Group-Validation Rule:
 A multi-row rule that involves grouping rows based on specific column values and evaluating whether certain criteria are satisfied within each group.
 Examples include functional dependencies, unique key constraints, outlier detection, and aggregation constraints.
+
+{multi_df_instructions}
 
 ### Support and Confidence Calculation:
 
@@ -263,7 +281,8 @@ IMPORTANT:
         
         result = chain.invoke({
             "rule_description": rule_description,
-            "dataframe_info": dataframe_info or ""
+            "dataframe_info": dataframe_info or "",
+            "multi_df_instructions": multi_df_instructions
         })
         
         # Convert the output format to a text representation for backward compatibility

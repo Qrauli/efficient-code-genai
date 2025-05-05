@@ -364,10 +364,22 @@ ALWAYS wrap your code in ```python and ``` markers.
                 "execution_time": None
             }
 
+        # Determine if it's a multi-dataframe test case
+        is_multi_df = isinstance(test_df_data, dict) and all(isinstance(v, dict) for v in test_df_data.values())
+
+        if is_multi_df:
+            # Create a dictionary of DataFrames
+            test_data_input = {name: pd.DataFrame(df_data) for name, df_data in test_df_data.items()}
+            exec_arg_name = "test_data_input_dict" # Use a distinct name for the dict
+        else:
+            # Create a single DataFrame
+            test_data_input = pd.DataFrame(test_df_data)
+            exec_arg_name = "test_data_input_df" # Use a distinct name for the single df
+
         namespace = {
             "pd": pd,
             "np": np,
-            "test_df": pd.DataFrame(test_df_data)
+            exec_arg_name: test_data_input # Add the prepared data to the namespace
         }
 
         stdout_buffer = io.StringIO()
@@ -392,7 +404,8 @@ ALWAYS wrap your code in ```python and ``` markers.
 
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 exec(function_code, namespace)
-                exec(f"result = {function_name}(test_df)", namespace)
+                # Pass the correct data structure (single df or dict) to the function
+                exec(f"result = {function_name}({exec_arg_name})", namespace)
                 actual_output = namespace.get("result")
 
             if isinstance(actual_output, dict) and all(k in actual_output for k in ['support', 'confidence', 'satisfactions', 'violations']):
@@ -467,10 +480,18 @@ ALWAYS wrap your code in ```python and ``` markers.
                         error_message += f"- Violation indexes: Expected {expected_violation_indexes}, extracted from violations output {actual_violation_indexes}\n"
                         error_message += f"- Violation structure: Expected {expected_violations}, got {violations}\n"
 
-                    error_message += "\nTest DataFrame used:\n"
-                    error_message += str(pd.DataFrame(test_df_data).head(10))
-                    if len(test_df_data) > 10:
-                        error_message += f"\n... (total rows: {len(test_df_data)})"
+                    error_message += "\nTest DataFrames used:\n"
+                    if is_multi_df:
+                        for name, df_dict in test_df_data.items():
+                            df_str = str(pd.DataFrame(df_dict).head(10))
+                            error_message += f"--- {name} ---\n{df_str}\n"
+                            if len(df_dict.get(next(iter(df_dict), ''), [])) > 10:
+                                error_message += f"... (total rows: {len(df_dict.get(next(iter(df_dict), ''), []))})\n"
+                    else:
+                        df_str = str(pd.DataFrame(test_df_data).head(10))
+                        error_message += f"{df_str}\n"
+                        if len(test_df_data.get(next(iter(test_df_data), ''), [])) > 10:
+                             error_message += f"... (total rows: {len(test_df_data.get(next(iter(test_df_data), ''), []))})\n"
 
                     if test_explanation:
                         error_message += "\nTest Case Explanation:\n"

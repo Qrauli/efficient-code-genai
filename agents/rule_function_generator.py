@@ -15,7 +15,7 @@ Your primary task is to produce correct and efficient code, so focus on correctn
 """
         super().__init__(config, "RuleFunctionGenerator", system_prompt)
     
-    def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None, test_case_guidance=None):
+    def process(self, rule_description, df_sample=None, function_name="execute_rule", context=None, rule_format=None, test_cases=None):
         """Generate a function that evaluates the given rule on a pandas DataFrame
         
         Args:
@@ -28,7 +28,17 @@ Your primary task is to produce correct and efficient code, so focus on correctn
         Returns:
             dict: Generated code and metadata
         """ 
+        is_multi_df = df_sample is not None and "--- DataFrame:" in df_sample
+
+        task_description = f"Generate a Python function named `{function_name}` that takes a pandas DataFrame as input and evaluates the rule described above."
         
+        if is_multi_df:
+            task_description = f"""
+Generate a Python function named `{function_name}` that takes a dictionary of pandas DataFrames as input and evaluates the rule described above.
+- The input will be a dictionary where keys are DataFrame names (as shown in the sample) and values are the corresponding pandas DataFrames.
+- Access specific DataFrames using dictionary syntax, e.g., `dfs['df_name1']`.
+"""
+
         # Format the rule format information if available
         format_guidance = ""
         if rule_format:
@@ -40,12 +50,46 @@ Based on the rule analysis, implement the following output structure:
 {rule_format}
 """
 
+        # Add test case explanation to the generator input if available
+        test_case_guidance = ""
+        if test_cases:
+            first_test_case = test_cases[0] if test_cases else {}
+            # Adapt test case display for multi-df if necessary
+            dataframe_display = first_test_case.get('dataframe', {})
+            if is_multi_df and isinstance(dataframe_display, dict):
+                 # Format dict of dicts nicely
+                 dataframe_display_str = "{\n"
+                 for name, df_dict in dataframe_display.items():
+                     dataframe_display_str += f"    '{name}': {df_dict},\n"
+                 dataframe_display_str += "}"
+            else:
+                 dataframe_display_str = str(dataframe_display) # Keep as string for single df
+
+            test_case_guidance = f"""
+# Test Case Information
+Here is a test case that should pass with your implementation:
+
+Sample DataFrame(s):
+```python
+{dataframe_display_str}
+```
+
+Expected Output:
+- Support: {first_test_case.get('expected_output', {}).get('support')}
+- Confidence: {first_test_case.get('expected_output', {}).get('confidence')}
+- Satisfactions: {first_test_case.get('expected_output', {}).get('satisfactions_str')}
+- Violations: {first_test_case.get('expected_output', {}).get('violations_str')}
+
+Explanation:
+{first_test_case.get('explanation', '')}
+"""
+
         template = """
 # Rule Description
 {rule_description}
 
 # Task
-Generate a Python function named `{function_name}` that takes a pandas DataFrame as input and evaluates the rule described above.
+{task_description}
 
 - The function should return a dictionary with the following keys:
     - `support`: the support value   
@@ -97,6 +141,7 @@ IMPORTANT:
             "test_case_guidance": test_case_guidance or "",
             "context": context or "",
             "function_name": function_name,
+            "task_description": task_description,
             "common_mistakes_prompt": common_mistakes_prompt(),
             "common_improvement_recommendations": common_improvement_recommendations()
         })
@@ -110,19 +155,25 @@ IMPORTANT:
             }
         }
     
-    def execute_and_profile_rule(self, function_code, dataframe, function_name="execute_rule"):
-        """Test the function code against a dataframe while also collecting performance metrics"""
+    def execute_and_profile_rule(self, function_code, data, function_name="execute_rule"):
+        """Test the function code against data (single DataFrame or dict of DataFrames) while also collecting performance metrics"""
         
         import tempfile
         import os
+        import pandas as pd # Ensure pandas is imported here
+        
+        # Determine if the input is a single DataFrame or a dictionary of DataFrames
+        is_multi_df = isinstance(data, dict)
         
         with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as temp_file:
             temp_file_path = temp_file.name
-            dataframe.to_pickle(temp_file_path)
+            # Pickle the data structure (single df or dict of dfs)
+            pd.to_pickle(data, temp_file_path)
             
         escaped_path = temp_file_path.replace('\\', '\\\\')
 
         # Create a test wrapper that includes both function definition and execution
+        # Adjust the loading and function call based on whether it's multi-df or not
         test_wrapper_code = f"""
 {function_code}
 
@@ -132,11 +183,11 @@ import pandas as pd
 import json
 
 try:
-    # Create a DataFrame copy to avoid side effects
-    df = pd.read_pickle("{escaped_path}")
+    # Load the pickled data (could be a single DataFrame or a dict)
+    loaded_data = pd.read_pickle("{escaped_path}")
         
-    # Run the function and capture results
-    result = {function_name}(df)
+    # Run the function and capture results, passing the loaded data structure
+    result = {function_name}(loaded_data)
     print("SUCCESS")
 except Exception as e:
     print("ERROR:", str(e))

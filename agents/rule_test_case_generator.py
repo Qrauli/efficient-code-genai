@@ -1,7 +1,7 @@
 from .base_agent import BaseAgent
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 class ExpectedOutput(BaseModel):
     support: float
@@ -11,7 +11,7 @@ class ExpectedOutput(BaseModel):
 
 class TestCase(BaseModel):
     name: str
-    dataframe: Dict[str, List[Any]]
+    dataframe: Union[Dict[str, List[Any]], Dict[str, Dict[str, List[Any]]]] # Allow single or multi-df structure
     explanation: str
     expected_output: ExpectedOutput
     
@@ -35,6 +35,46 @@ accurate test cases that validate the implementation of data quality rules on pa
         Returns:
             dict: Dictionary containing multiple test cases with sample dataframes and expected outputs
         """
+        
+        # Check if the rule involves multiple DataFrames based on the info format
+        is_multi_df = dataframe_info is not None and "--- DataFrame:" in dataframe_info
+        
+        multi_df_instructions = ""
+        if is_multi_df:
+            multi_df_instructions = """
+## Multi-DataFrame Test Case Instructions:
+
+The rule involves multiple DataFrames. Pay close attention to the following:
+- Represent the test data in the `dataframe` field as a dictionary where keys are the DataFrame names (as shown in `dataframe_info`) and values are dictionaries representing each DataFrame (columns as keys, lists of values).
+- In the explanation, clearly state which DataFrame acts as the primary source for row indices in `satisfactions` and `violations`, according to the `rule_format` specification.
+- Ensure the test data across DataFrames is coherent and allows for testing the interactions described in the rule.
+- Accurately calculate support and confidence based on the *primary* DataFrame, as defined in the `rule_format`.
+- Indexes in 'satisfactions_str' and 'violations_str' should refer to rows in the primary DataFrame unless explicitly stated otherwise by the rule format.
+"""                         
+        
+        # Determine the correct dataframe JSON structure example for the prompt
+        dataframe_json_structure_example_single = """
+    "dataframe": {
+      "column1": [column1_values],
+      "column2": [column2_values],
+      ...
+    }""" # Indentation matters
+        dataframe_json_structure_example_multi = """
+    "dataframe": {
+      "df_name1": {
+         "columnA": [values_A],
+         ...
+      },
+      "df_name2": {
+         "columnB": [values_B],
+         ...
+      },
+      ...
+    }"""   
+        
+        dataframe_json_structure_example = dataframe_json_structure_example_multi if is_multi_df else dataframe_json_structure_example_single
+
+        
         template = """
 # Rule Description
 {rule_description}
@@ -47,10 +87,12 @@ accurate test cases that validate the implementation of data quality rules on pa
 # Task
 Create {num_test_cases} diverse and precise test case/s for validating this data quality rule. Each test case should include:
 
-1. A small sample DataFrame (3-5 rows is sufficient)
+1. A small sample DataFrame or set of DataFrames (3-5 rows per DataFrame is sufficient). Format the `dataframe` field according to the requirements below.
 2. The expected output values (support, confidence, satisfactions_indexes, violations_indexes)
 3. The complete expected satisfactions and violations structures as Python string representations
 4. A detailed explanation of why these values are expected (row-by-row breakdown)
+
+{multi_df_instructions}
 
 # Additional Requirements
 - Make sure that the test cases help the llm to understand the rule and its implementation
@@ -151,11 +193,7 @@ I want you to return {num_test_cases} test cases in a structured JSON format tha
 [
   {{
     "name": "Test Case 1",
-    "dataframe": {{
-      "column1": [column1_values],
-      "column2": [column2_values],
-      ...
-    }},
+{dataframe_json_structure_example},
     "explanation": "Consise and clear explanation of why these values are expected detailing why certain rows are included in satisfactions or violations according to the rule",
     "expected_output": {{
       "support": 0.X,
@@ -184,6 +222,7 @@ IMPORTANT:
 - Multi-row rules often seem conditional since they work on groups of rows, but single-row groups are also possible and should be present in either the satisfactions or violations.
 - For satisfactions_str and violations_str, provide Python-syntax string representations that could be evaluated with eval() to recreate the actual data structure
 - Include only the columns needed to test the rule (don't include unnecessary columns)
+- Make sure the JSON contains no numeric operators when representing the expected output values e.g. 0.5 instead of 1/2
 - Calculate support and confidence values precisely according to the formula in the rule format
 - For satisfactions_indexes and violations_indexes, provide the exact row indexes that should be present in the output
 - For satisfactions and violations, provide the string representation of the Python structure as it would appear in the output
@@ -203,7 +242,9 @@ IMPORTANT:
             "rule_description": rule_description,
             "rule_format": rule_format,
             "dataframe_info": dataframe_info or "",
-            "num_test_cases": num_test_cases
+            "num_test_cases": num_test_cases,
+            "multi_df_instructions": multi_df_instructions, 
+            "dataframe_json_structure_example": dataframe_json_structure_example
         })
                 
         return {
