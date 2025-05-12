@@ -56,7 +56,8 @@ class RuleOrchestrator:
                      use_code_correction=True,
                      use_code_review=True,
                      use_code_optimization=True,
-                     max_correction_attempts=3, max_restarts=3, test_percentage=0.5):
+                     max_correction_attempts=3, max_restarts=3, test_percentage=0.5,
+                     start_code=None):
         """Process a rule description to generate and optimize a function for DataFrame rule evaluation
         
         Args:
@@ -74,6 +75,8 @@ class RuleOrchestrator:
             use_code_optimization (bool, optional): Whether to optimize the code (default: True)
             max_correction_attempts (int, optional): Maximum number of attempts to correct code before restarting (default: 3)
             max_restarts (int, optional): Maximum number of full workflow restarts (default: 2)
+            test_percentage (float, optional): Percentage of test cases that must pass for success (default: 0.5)
+            start_code (str, optional): Initial code to start with (default: None)
             
         Returns:
             dict: Generated code, execution history, and metadata
@@ -152,18 +155,21 @@ class RuleOrchestrator:
 
                 # Phase 1: Generate initial function with retrieval context, format specifications and test case
                 generator_context = ""
-                
-                generator_result = self.rule_function_generator.process(
-                    rule_description, 
-                    df_sample=dataframe_info, # Pass single or multi-df info
-                    function_name=function_name,
-                    context=generator_context,
-                    rule_format=rule_format,
-                    test_cases=test_cases
-                )
-                
-                current_code = initial_code = generator_result["code"]
-                results_history.append({"step": f"generation_{restart_count}", "result": generator_result})
+                if not start_code:
+                    generator_result = self.rule_function_generator.process(
+                        rule_description, 
+                        df_sample=dataframe_info, # Pass single or multi-df info
+                        function_name=function_name,
+                        context=generator_context,
+                        rule_format=rule_format,
+                        test_cases=test_cases
+                    )
+                    
+                    current_code = initial_code = generator_result["code"]
+                    results_history.append({"step": f"generation_{restart_count}", "result": generator_result})
+                else:
+                    # If initial code is provided, use it directly
+                    current_code = initial_code = start_code
                 
                 # Phase 2: Optimization loop
                 iterations = 0
