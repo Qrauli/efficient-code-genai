@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from langchain_openai import ChatOpenAI
+from langchain_google_vertexai import ChatVertexAI
 from langchain.chains import LLMChain
 from langchain.prompts import ChatPromptTemplate
 import re
@@ -17,11 +18,16 @@ class BaseAgent(ABC):
         self.config = config
         self.name = name
         self.system_prompt = system_prompt
-        self.llm = ChatOpenAI(
+        # self.llm = ChatOpenAI(
+        #     model=config.LLM_MODEL,
+        #     temperature=config.AGENT_TEMPERATURE,
+        #     api_key=config.LLM_API_KEY,
+        #     base_url=config.LLM_BASE_URL,
+        # )
+        self.llm = ChatVertexAI(
             model=config.LLM_MODEL,
             temperature=config.AGENT_TEMPERATURE,
-            api_key=config.LLM_API_KEY,
-            base_url=config.LLM_BASE_URL,
+            thinking_budget=0
         )
         
     @abstractmethod
@@ -47,7 +53,7 @@ class BaseAgent(ABC):
                 parser_retry = RetryWithErrorOutputParser.from_llm(
                     self.llm,
                     parser,
-                    max_retries=2
+                    max_retries=3
                 )
                 return parser_retry.parse_with_prompt(completion_content, prompt_value=prompt_value)
             elif not parse_with_prompt:
@@ -78,7 +84,7 @@ class BaseAgent(ABC):
         return RetryWithErrorOutputParser.from_llm(
             self.llm,
             regex_parser,
-            max_retries=2
+            max_retries=3
         )
 
 def _create_dataframe_sample(df_input: Union[pd.DataFrame, Dict[str, pd.DataFrame]]):
@@ -97,11 +103,12 @@ def _create_dataframe_sample(df_input: Union[pd.DataFrame, Dict[str, pd.DataFram
             formatted_sample += "DataFrame Sample (returned by df.head(sample_size)):\n"
             formatted_sample += sample_df.to_string()
 
-            # Add number of distinct values per column
-            formatted_sample += "\n\nNumber of distinct values per column:\n"
+            # Add number of distinct values and dtype per column
+            formatted_sample += "\n\nColumn Details (Distinct Values, Dtype):\n"
             distinct_counts = df.nunique(dropna=False)
+            dtypes = df.dtypes
             for col in df.columns:
-                formatted_sample += f"- {col}: {distinct_counts[col]}\n"
+                formatted_sample += f"- {col}: {distinct_counts[col]}, {dtypes[col]}\n"
             formatted_sample += "\n" # Add a separator between DataFrames
     else:
         # Handle single DataFrame (existing logic)
@@ -114,11 +121,12 @@ def _create_dataframe_sample(df_input: Union[pd.DataFrame, Dict[str, pd.DataFram
         formatted_sample += "DataFrame Sample (returned by df.head(sample_size)):\n"
         formatted_sample += sample_df.to_string()
 
-        # Add number of distinct values per column
-        formatted_sample += "\n\nNumber of distinct values per column:\n"
+        # Add number of distinct values and dtype per column
+        formatted_sample += "\n\nColumn Details (Distinct Values, Dtype):\n"
         distinct_counts = df.nunique(dropna=False)
+        dtypes = df.dtypes
         for col in df.columns:
-            formatted_sample += f"- {col}: {distinct_counts[col]}\n"
+            formatted_sample += f"- {col}: {distinct_counts[col]}, {dtypes[col]}\n"
 
     return formatted_sample.strip() # Remove trailing newline if any
 
@@ -153,9 +161,10 @@ def extract_code(text):
     # If no code blocks found, return the original text
     return text
 
-def common_improvement_recommendations():
-    """Common improvement recommendations for code optimization"""
-    return """
+def common_improvement_recommendations(is_multi_dataframe=False):
+    """Common improvement recommendations for code optimization"""   
+        
+    prompt = """
 Common Improvement Recommendations:
 1. Iterating Inefficiently: Using .iterrows() or .apply() for row-wise operations instead of vectorized operations can significantly reduce performance. If vectorized operations are not possible (which is the fastest option by far), consider using map()/applymap(), .apply(), .itertuples(), or .iterrows() in that order of preference.
 2. Creating Unnecessary Copies: Creating unnecessary copies of the dataframe wastes memory. Work on slices or views whenever possible.
@@ -163,12 +172,21 @@ Common Improvement Recommendations:
 4. Use Built-in Pandas and NumPy Functions that have implemented C like 'sum()', 'mean()', or 'max()' when needed/possible.
 5. Use vectorized operations that can apply to entire DataFrames and Series including mathematical operations, comparisons, and logic to create a boolean mask to select multiple rows from your data set.
 6. Avoid lambda functions in groupby() and apply() methods. Instead, use built-in functions or vectorized operations whenever possible.
-7. Pandas has optimized operations based on indices, allowing for faster lookup or merging tables based on indices. Single lookups using indices outperform other methods with great margin. When retrieving a single value, using .at[] is faster than using .loc[]. Setting indexes on columns used for grouping might speed up groupby operations.
-8. Try to combine multiple operations into a single pass through the data. For example, instead of grouping multiple times on different columns, group once and aggregate all necessary columns in that single pass.
-9. Try filtering DataFrames with boolean masks for better performance.
-10. Avoid manual unique combination tracking and manual index collection; let pandas handle with/during grouping.
-11. Avoid filtering the DataFrame in loops and nested grouping; instead, process groups directly
+7. Try to combine multiple operations into a single pass through the data. For example, instead of grouping multiple times on different columns, group once and aggregate all necessary columns in that single pass.
+8. Try filtering DataFrames with boolean masks for better performance.
+9. Avoid manual unique combination tracking and manual index collection; let pandas handle with/during grouping.
+10. Avoid filtering the DataFrame in loops and nested grouping; instead, process groups directly
 """
+
+# 7. Pandas has optimized operations based on indices, allowing for faster lookup or merging tables based on indices. Single lookups using indices outperform other methods with great margin. When retrieving a single value, using .at[] is faster than using .loc[]. Setting indexes on columns used for grouping might speed up groupby operations.
+
+    if is_multi_dataframe:
+        prompt += """
+IMPORTANT:
+For numeric ID comparisons ALWAYS convert columns using `astype(int).astype(str)` instead of just `astype(str)` ONLY if the datatypes don't match, e.g int vs float, see dataframe info. Otherwise there might be issues with the formatting of the string.
+"""
+    return prompt
+    
 
 def common_mistakes_prompt():
     """Prompt for common mistakes in code debugging tasks"""
@@ -184,16 +202,15 @@ Common Mistakes to Avoid When You Generate Code:
 8. Recalculating Intermediate Results: Recomputing the same results multiple times instead of storing them in temporary variables wastes resources.
 9. Hardcoding Values: Hardcoding column names, thresholds, or parameters reduces flexibility. Use variables or configuration files instead.
 10. Skipping Code Documentation: Failing to add comments for non-trivial operations makes the code harder to understand and maintain.
-11. Neglecting Thorough Testing: Not testing the code with edge cases like empty dataframes, extreme values, or unexpected structures can result in undetected bugs.
-12. Overlooking Duplicate Entries: Ignoring duplicate rows or entries can affect data quality checks. Use df.duplicated() to identify and handle duplicates.
-13. Using Inconsistent Column Name Case: Referencing column names inconsistently with case sensitivity can cause KeyErrors in datasets with varying conventions.
-14. Altering Indices Unintentionally: Changing indices during intermediate steps without tracking the original index can cause alignment issues.
-15. If the rule is unconditional every row in the DataFrame is either a satisfaction or a violation.
-16. Make sure that you don't overwrite the existing entries already contained in the inner dictionaries of the satisfactions or violations.
-17. Keep the keys used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, contextually relevant based on the column names.
-18. Do not use libraries other than pandas and numpy that are not available in the standard library.
-19. Do not write unfinished code, make sure that the code is complete and also don't use auxiliary functions that are not defined in the code.
-20. Do not define variables and constants outside the main function.
-21. Only reference varibles after they are defined/assigned.
-22. Some columns in the DataFrame might be of type string or represented as strings, but they are not actually strings, so convert them to the appropriate type before using them in the code.
+11. Overlooking Duplicate Entries: Ignoring duplicate rows or entries can affect data quality checks. Use df.duplicated() to identify and handle duplicates.
+12. Using Inconsistent Column Name Case: Referencing column names inconsistently with case sensitivity can cause KeyErrors in datasets with varying conventions.
+13. Altering Indices Unintentionally: Changing indices during intermediate steps without tracking the original index can cause alignment issues.
+14. If the rule is unconditional every row in the DataFrame is either a satisfaction or a violation.
+15. Make sure that you don't overwrite the existing entries already contained in the inner dictionaries of the satisfactions or violations.
+16. Keep the keys used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, contextually relevant based on the column names.
+17. Do not use libraries other than pandas and numpy that are not available in the standard library.
+18. Do not write unfinished code, make sure that the code is complete and also don't use auxiliary functions that are not defined in the code.
+19. Do not define variables and constants outside the main function.
+20. Only reference varibles after they are defined/assigned.
+21. Some columns in the DataFrame might be of type string or represented as strings, but they are not actually strings, so convert them to the appropriate type before using them in the code.
 """

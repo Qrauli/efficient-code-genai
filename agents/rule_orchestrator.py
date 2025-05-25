@@ -57,7 +57,8 @@ class RuleOrchestrator:
                      use_code_review=True,
                      use_code_optimization=True,
                      max_correction_attempts=3, max_restarts=3, test_percentage=0.5,
-                     start_code=None):
+                     start_code=None,
+                     fast_code_selection=True):
         """Process a rule description to generate and optimize a function for DataFrame rule evaluation
         
         Args:
@@ -566,22 +567,23 @@ class RuleOrchestrator:
             # Select the fastest code based on profiling history
             fastest_code = current_code
             min_time = float('inf')
-            for code, prof in profiling_history:
-                if prof and not prof.get("timed_out", False):
-                    exec_time = prof.get("measured_execution_time")
-                    if exec_time is not None and exec_time < min_time:
-                        min_time = exec_time
-                        fastest_code = code
+            if fast_code_selection:
+                for code, prof in profiling_history:
+                    if prof and not prof.get("timed_out", False):
+                        exec_time = prof.get("measured_execution_time")
+                        if exec_time is not None and exec_time < min_time:
+                            min_time = exec_time
+                            fastest_code = code
 
             # Store the successful code for future retrieval if enabled
-            if self.use_retrieval and test_case_result and test_case_result.get("success", False):
+            """if self.use_retrieval and test_case_result and test_case_result.get("success", False):
                 self.retriever.add_generated_code(
                     code=fastest_code,
                     metadata={
                         "description": f"Optimized function for rule: {rule_description}",
                         "tags": ["rule_evaluation", "dataframe", "optimized"]
                     }
-                )
+                )"""
             
             return {
                 "code": fastest_code,

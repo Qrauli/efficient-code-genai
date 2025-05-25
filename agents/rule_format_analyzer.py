@@ -36,11 +36,11 @@ You are an expert rule analysis agent that determines the appropriate structure 
 ## Multi-DataFrame Rules Specifics:
 
 The rule involves multiple DataFrames (as indicated by the `--- DataFrame: ---` separators in the sample info):
-- Identify the **primary DataFrame** where the rule's violations or satisfactions are primarily tracked (i.e., which DataFrame's row indices will be stored in the `satisfactions` and `violations` outputs).
+- Identify the primary DataFrame where the rule's violations or satisfactions are primarily tracked (i.e., which DataFrame's row indices will be stored in the `satisfactions` and `violations` outputs).
 - Many multi-DataFrame rules involve checking references or conditions between a primary DataFrame and one or more secondary DataFrames (e.g., "Column X in DataFrame A must exist in Column Y of DataFrame B").
-- Even with multiple DataFrames, the rule often behaves like a **single-row rule** concerning the *primary* DataFrame. Each row in the primary DataFrame is checked against conditions potentially involving other DataFrames.
-- Clearly state in your `satisfactions_format` and `violations_format` explanations **which DataFrame's indices** are being used.
-- Support and Confidence calculations should generally be based on the rows of the **primary DataFrame** that are subject to the rule's conditions.
+- Even with multiple DataFrames, the rule often behaves like a single-row rule concerning the primary DataFrame. Each row in the primary DataFrame is checked against conditions potentially involving other DataFrames.
+- Clearly state in your `satisfactions_format` and `violations_format` explanations which DataFrame's indices are being used.
+- Support and Confidence calculations should generally be based on the rows of the primary DataFrame that are subject to the rule's conditions.
 """
 
         template = """
@@ -261,6 +261,7 @@ I want you to return your analysis as a JSON object with the following structure
 IMPORTANT: 
 - Make sure to use the exact column names from the DataFrame sample in your explanations
 - The output format explanations should be detailed and clear with specific examples tailored to this rule
+- Dependency rules of the form "Name --> high" generally mean that the values of the columns on the left side determine the values of the columns on the right side.
 - For multi-row rules (group-validation), clearly specify how groups should be formed and what keys should be used
 - You must be able to extract the row indexes from the satisfactions and violations dictionaries. The nested dictionaries/sets always have row indexes as the leaf nodes/primary values and not other column values.
 - Make sure you check if the rule is conditional or unconditional and adjust the explanations accordingly. Especially mention that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation. 

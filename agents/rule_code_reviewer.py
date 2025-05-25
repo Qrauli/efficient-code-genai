@@ -29,6 +29,8 @@ Based on your analysis, you'll recommend whether to:
     
     def _review_code(self, code, previous_code, problem_description, test_result, dataframe_info, profiling_data):
         
+        is_multi_df = dataframe_info is not None and "--- DataFrame:" in dataframe_info
+
         # Extract metrics from test result
         line_profiling = profiling_data.get("line_profiling", [])
         
@@ -91,7 +93,7 @@ FINAL_RECOMMENDATION: [CONTINUE OPTIMIZATION/TERMINATE OPTIMIZATION]
             "code": code,
             "dataframe_info": dataframe_info,
             "line_profiling": line_profiling,
-            "common_improvement_recommendations": common_improvement_recommendations()
+            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df)
         })
         
         # Parse the review result to extract structured information

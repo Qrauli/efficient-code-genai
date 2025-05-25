@@ -143,7 +143,7 @@ IMPORTANT:
             "function_name": function_name,
             "task_description": task_description,
             "common_mistakes_prompt": common_mistakes_prompt(),
-            "common_improvement_recommendations": common_improvement_recommendations()
+            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df)
         })
         
         return {

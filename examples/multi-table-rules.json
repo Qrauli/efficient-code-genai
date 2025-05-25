@@ -1,0 +1,554 @@
+[
+  {
+    "table1": "enti",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "responsabili.Codice_IPA ∈ enti.Codice_IPA",
+    "natural_language_explanation": "Every record in the responsabili_transizione_digitale table must reference a valid entity listed in the enti table via Codice_IPA.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "responsabili.Codice_fiscale_ente ∈ enti.Codice_fiscale_ente",
+    "natural_language_explanation": "Every record in the responsabili_transizione_digitale table must reference a valid entity listed in the enti table via Codice_fiscale_ente.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=responsabili.Codice_IPA THEN responsabili.Codice_fiscale_ente = enti.Codice_fiscale_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Responsabili Transizione Digitale should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=responsabili.Codice_IPA THEN responsabili.Denominazione_ente = enti.Denominazione_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Responsabili Transizione Digitale should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "uo_sfe.Codice_IPA ∈ enti.Codice_IPA",
+    "natural_language_explanation": "Every record in the unita_organizzative_sfe table must reference a valid entity listed in the enti table via Codice_IPA.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "uo_sfe.Codice_fiscale_ente ∈ enti.Codice_fiscale_ente",
+    "natural_language_explanation": "Every record in the unita_organizzative_sfe table must reference a valid entity listed in the enti table via Codice_fiscale_ente.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=uo_sfe.Codice_IPA THEN uo_sfe.Codice_fiscale_ente = enti.Codice_fiscale_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Unita Organizzative SFE should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=uo_sfe.Codice_IPA THEN uo_sfe.Denominazione_ente = enti.Denominazione_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Unita Organizzative SFE should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "uo.Codice_IPA ∈ enti.Codice_IPA",
+    "natural_language_explanation": "Every record in the unita_organizzative table must reference a valid entity listed in the enti table via Codice_IPA.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "uo.Codice_fiscale_ente ∈ enti.Codice_fiscale_ente",
+    "natural_language_explanation": "Every record in the unita_organizzative table must reference a valid entity listed in the enti table via Codice_fiscale_ente.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=uo.Codice_IPA THEN uo.Codice_fiscale_ente = enti.Codice_fiscale_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Unita Organizzative should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "enti",
+    "table2": "unita_organizzative",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF enti.Codice_IPA=uo.Codice_IPA THEN uo.Denominazione_ente = enti.Denominazione_ente",
+    "natural_language_explanation": "An entity (Codice_IPA) is referenced in Enti table and that same entity, stored in Unita Organizzative should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Identity Integrity",
+    "rule_definition": "responsabili.Codice_uni_uo ∈ uo.Codice_uni_uo",
+    "natural_language_explanation": "Every record in the responsabili_transizione_digitale table must reference a valid entity listed in the unita_organizzative table via Codice_uni_uo.",
+    "violation_rate": 0.3
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Semantic Consistency (?)",
+    "rule_definition": "IF responsabili.Codice_uni_uo = uo.Codice_uni_uo THEN uo.Descrizione_uo = 'Ufficio per la transizione al Digitale'",
+    "natural_language_explanation": "Whenever an organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale, that same unit, as stored in Unita Organizzative, must be labelled exactly “Ufficio per la transizione al Digitale”. This guarantees that the RTD is always attached to the dedicated Digital‑Transition office and not to an unrelated unit.",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Semantic Consistency (?)",
+    "rule_definition": "IF responsabili.Codice_uni_uo = uo.Codice_uni_uo THEN (responsabili.Nome_responsabile = uo.Nome_responsabile) AND (responsabili.Cognome_responsabile = uo.Cognome_responsabile)",
+    "natural_language_explanation": "Whenever the same organisational unit (Codice_uni_uo) appears in both tables, the first‑name and surname of the Digital‑Transition manager must match the name and surname recorded for the unit in Unita Organizzative. This guarantees that the person registered as RTD is exactly the person officially in charge of that unit.",
+    "violation_rate": 0.15
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.CAP = responsabili.CAP",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same CAP",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Codice_IPA = responsabili.Codice_IPA",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Codice_IPA",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Codice_catastale_comune = responsabili.Codice_catastale_comune",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Codice_catastale_comune",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Codice_comune_ISTAT = responsabili.Codice_comune_ISTAT",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Codice_comune_ISTAT",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Codice_fiscale_ente = responsabili.Codice_fiscale_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Cognome_responsabile = responsabili.Cognome_responsabile",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Cognome_responsabile",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Data_istituzione = responsabili.Data_istituzione",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Data_istituzione",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Denominazione_ente = responsabili.Denominazione_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Descrizione_uo = responsabili.Descrizione_uo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Descrizione_uo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Fax = responsabili.Fax",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Fax",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Indirizzo = responsabili.Indirizzo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Indirizzo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Mail1 = responsabili.Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Mail2 = responsabili.Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Mail3 = responsabili.Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Mail3",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Mail_responsabile = responsabili.Mail_responsabile",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Mail_responsabile",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Nome_responsabile = responsabili.Nome_responsabile",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Nome_responsabile",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Telefono_responsabile = responsabili.Telefono_responsabile",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Telefono_responsabile",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Telefono = responsabili.Telefono",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Telefono",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Tipo_Mail1 = responsabili.Tipo_Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Tipo_Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Tipo_Mail2 = responsabili.Tipo_Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Tipo_Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=responsabili.Codice_uni_uo THEN uo.Tipo_Mail3 = responsabili.Tipo_Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Responsabili Transizione Digitale and that same unit, stored in Unita Organizzative should have the same Tipo_Mail3",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.CAP = uo_sfe.CAP",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same CAP",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Codice_IPA = uo_sfe.Codice_IPA",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Codice_IPA",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Codice_catastale_comune = uo_sfe.Codice_catastale_comune",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Codice_catastale_comune",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Codice_comune_ISTAT = uo_sfe.Codice_comune_ISTAT",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Codice_comune_ISTAT",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Codice_fiscale_ente = uo_sfe.Codice_fiscale_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Denominazione_ente = uo_sfe.Denominazione_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Descrizione_uo = uo_sfe.Descrizione_uo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Descrizione_uo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Fax = uo_sfe.Fax",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Fax",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Indirizzo = uo_sfe.Indirizzo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Indirizzo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Mail1 = uo_sfe.Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Mail2 = uo_sfe.Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Mail3 = uo_sfe.Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Mail3",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Telefono = uo_sfe.Telefono",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Telefono",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Tipo_Mail1 = uo_sfe.Tipo_Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Tipo_Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Tipo_Mail2 = uo_sfe.Tipo_Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Tipo_Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative",
+    "table2": "unita_organizzative_sfe",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF uo.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN uo.Tipo_Mail3 = uo_sfe.Tipo_Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Unita Organizzative should have the same Tipo_Mail3",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.CAP = uo_sfe.CAP",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same CAP",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Codice_IPA = uo_sfe.Codice_IPA",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Codice_IPA",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Codice_catastale_comune = uo_sfe.Codice_catastale_comune",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Codice_catastale_comune",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Codice_comune_ISTAT = uo_sfe.Codice_comune_ISTAT",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Codice_comune_ISTAT",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Codice_fiscale_ente = uo_sfe.Codice_fiscale_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Codice_fiscale_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Denominazione_ente = uo_sfe.Denominazione_ente",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Denominazione_ente",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Descrizione_uo = uo_sfe.Descrizione_uo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Descrizione_uo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Fax = uo_sfe.Fax",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Fax",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Indirizzo = uo_sfe.Indirizzo",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Indirizzo",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Mail1 = uo_sfe.Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Mail2 = uo_sfe.Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Mail3 = uo_sfe.Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Mail3",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Nome_Categoria = uo_sfe.Nome_Categoria",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Nome_Categoria",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Telefono = uo_sfe.Telefono",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Telefono",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Tipo_Mail1 = uo_sfe.Tipo_Mail1",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Tipo_Mail1",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Tipo_Mail2 = uo_sfe.Tipo_Mail2",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Tipo_Mail2",
+    "violation_rate": 0
+  },
+  {
+    "table1": "unita_organizzative_sfe",
+    "table2": "responsabili_transizione_digitale",
+    "rule_category": "Attribute Value Consistency",
+    "rule_definition": "IF responsabili.Codice_uni_uo=uo_sfe.Codice_uni_uo THEN responsabili.Tipo_Mail3 = uo_sfe.Tipo_Mail3",
+    "natural_language_explanation": "An organisational unit (Codice_uni_uo) is referenced in Unita Organizzative SFE and that same unit, stored in Responsabili Transizione Digitale should have the same Tipo_Mail3",
+    "violation_rate": 0
+  }
+]

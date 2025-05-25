@@ -28,6 +28,8 @@ Focus on improving time complexity, memory usage, and overall performance. Execu
                               review_feedback, rule_format=None, retrieval_context="", warnings=None):
         """Optimize code for performance based on profiling data"""
         
+        is_multi_df = dataframe_info is not None and "--- DataFrame:" in dataframe_info
+
         # Format profiling data for template
         line_profiling = profiling_data.get("line_profiling", [])
         # Format reviewer feedback if available
@@ -97,7 +99,7 @@ OPTIMIZED_CODE:
             "retrieval_context": retrieval_context or "",
             "format_guidance": format_guidance,
             "warnings_text": warnings_text,
-            "common_improvement_recommendations": common_improvement_recommendations()
+            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df)
         })
         
         return {

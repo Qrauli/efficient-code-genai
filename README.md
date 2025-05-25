@@ -66,7 +66,10 @@ flowchart TD
         CodeCorrection --> TestRun
         
         TestChecker -->|Yes| Profile[Function Profiling]
-        Profile --> CodeReviewer[RuleCodeReviewer]
+        Profile --> ProfileSuccess{Profiling OK?}
+
+        ProfileSuccess -->|No| Attempts
+        ProfileSuccess -->|Yes| CodeReviewer[RuleCodeReviewer]
         
         CodeReviewer --> OptimizeDecision{Continue Optimization?}
         OptimizeDecision -->|Yes| CodeOptimizer[RuleCodeOptimizer]
@@ -80,12 +83,6 @@ flowchart TD
         
         ResultCheck -->|Yes| FinalSuccess[Return Optimized Code]
         
-        ContextRetriever[ContextRetriever]
-        GenCode -.->|Query| ContextRetriever
-        CodeOptimizer -.->|Optimization Query| ContextRetriever
-        ContextRetriever -.->|Relevant Context| GenCode
-        ContextRetriever -.->|Optimization Context| CodeOptimizer
-    
         RestartCheck{Max Restarts?}
         RestartCheck -->|No| Restart[Restart Workflow]
         Restart --> GenCode
