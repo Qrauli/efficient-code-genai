@@ -8,6 +8,7 @@ import sys
 import time
 import io
 from contextlib import redirect_stdout, redirect_stderr
+import concurrent.futures  # Add this import for timeout functionality
 
 # Add parent directory to path to import RuleOrchestrator and Config
 # This assumes the script is in the 'examples' directory.
@@ -95,6 +96,9 @@ def main():
     data_path = os.path.dirname(os.path.abspath(__file__)) 
     rules_file_path = os.path.join(data_path, "mutli-table-rules-ext.json")
     output_results_path = os.path.join(data_path, "multi_table_rule_evaluation_results_2.5.json")
+    
+    # Set execution timeout in seconds
+    execution_timeout = 300  # Adjust this value based on your needs
 
     app_config = Config()
     orchestrator = RuleOrchestrator(app_config, use_retrieval=False)
@@ -264,7 +268,7 @@ def main():
             all_rule_results.append(current_rule_result)
             continue
 
-        # --- Execute Generated Code ---
+        # --- Execute Generated Code with Timeout ---
         execution_output = None
         execution_error_msg = None
         execution_time_taken = None
@@ -282,13 +286,24 @@ def main():
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
         
-        print(f"Executing generated function: {current_rule_result['function_name']}...")
+        print(f"Executing generated function: {current_rule_result['function_name']}... (timeout: {execution_timeout}s)")
         exec_start_time = time.time()
+        
+        # Define a function to execute the code that we can run with a timeout
+        def execute_rule_code():
+            exec(current_rule_result["generated_code"], namespace_exec)
+            rule_fn = namespace_exec[current_rule_result["function_name"]]
+            return rule_fn(current_rule_dataframes)
+        
         try:
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                exec(current_rule_result["generated_code"], namespace_exec)
-                rule_fn = namespace_exec[current_rule_result["function_name"]]
-                execution_output = rule_fn(current_rule_dataframes) 
+                # Execute with timeout using ThreadPoolExecutor
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(execute_rule_code)
+                    try:
+                        execution_output = future.result(timeout=execution_timeout)
+                    except concurrent.futures.TimeoutError:
+                        raise TimeoutError(f"Code execution timed out after {execution_timeout} seconds")
             
             execution_time_taken = time.time() - exec_start_time
             print(f"Code execution successful. Time: {execution_time_taken:.4f}s")
@@ -338,6 +353,12 @@ def main():
                 execution_error_msg = "Execution output was not a dictionary or was None."
                 print(f"  Warning: {execution_error_msg}")
                 current_rule_result["status"] = "processed_bad_output_format"
+        
+        except TimeoutError as e_timeout:
+            execution_time_taken = time.time() - exec_start_time
+            execution_error_msg = str(e_timeout)
+            print(f"  Error: {execution_error_msg}")
+            current_rule_result["status"] = "processed_execution_timeout"
         
         except Exception as e_exec:
             execution_time_taken = time.time() - exec_start_time
