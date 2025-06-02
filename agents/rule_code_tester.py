@@ -1,5 +1,5 @@
 from typing import List, TypedDict, Any
-from .base_agent import BaseAgent, common_mistakes_prompt
+from .base_agent import BaseAgent, common_mistakes_prompt, common_generation_prompt
 
 import sys
 sys.path.append("..")
@@ -87,6 +87,13 @@ When fixing the code, ensure it maintains this exact return structure:
 
 {rule_format}
 """
+        is_multi_df = dataframe_info is not None and "--- DataFrame:" in dataframe_info
+        if is_multi_df:
+            format_guidance += """
+IMPORTANT:
+For numeric ID comparisons ALWAYS convert columns using `astype(int).astype(str)` instead of just `astype(str)` ONLY if the datatypes don't match, e.g int vs float, see dataframe info. Otherwise there might be issues with the formatting of the string.
+"""            
+
         template = """
 Problem Description: {problem_description}
 
@@ -115,6 +122,8 @@ Common Issues to Check:
 5. Improper handling of the return format 
 6. Make sure that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
 
+{common_generation_prompt}
+
 Your response should ONLY contain the python code and nothing else.
 ALWAYS wrap your code in ```python and ``` markers.
 """
@@ -129,7 +138,8 @@ ALWAYS wrap your code in ```python and ``` markers.
             "failing_tests": "\n".join(failing_tests),
             "dataframe_info": dataframe_info,
             "code": code,
-            "common_mistakes": common_mistakes_prompt()
+            "common_mistakes": common_mistakes_prompt(),
+            "common_generation_prompt": common_generation_prompt()
         })
         
         return {
@@ -367,20 +377,7 @@ ALWAYS wrap your code in ```python and ``` markers.
         # Determine if it's a multi-dataframe test case
         is_multi_df = isinstance(test_df_data, dict) and all(isinstance(v, dict) for v in test_df_data.values())
 
-        if is_multi_df:
-            # Create a dictionary of DataFrames
-            test_data_input = {name: pd.DataFrame(df_data) for name, df_data in test_df_data.items()}
-            exec_arg_name = "test_data_input_dict" # Use a distinct name for the dict
-        else:
-            # Create a single DataFrame
-            test_data_input = pd.DataFrame(test_df_data)
-            exec_arg_name = "test_data_input_df" # Use a distinct name for the single df
-
-        namespace = {
-            "pd": pd,
-            "np": np,
-            exec_arg_name: test_data_input # Add the prepared data to the namespace
-        }
+    
 
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
@@ -401,6 +398,21 @@ ALWAYS wrap your code in ```python and ``` markers.
             warnings.resetwarnings()
             warnings.simplefilter('always')
             warnings.showwarning = warning_collector
+            
+            if is_multi_df:
+            # Create a dictionary of DataFrames
+                test_data_input = {name: pd.DataFrame(df_data) for name, df_data in test_df_data.items()}
+                exec_arg_name = "test_data_input_dict" # Use a distinct name for the dict
+            else:
+                # Create a single DataFrame
+                test_data_input = pd.DataFrame(test_df_data)
+                exec_arg_name = "test_data_input_df" # Use a distinct name for the single df
+
+            namespace = {
+                "pd": pd,
+                "np": np,
+                exec_arg_name: test_data_input # Add the prepared data to the namespace
+            }
 
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 exec(function_code, namespace)

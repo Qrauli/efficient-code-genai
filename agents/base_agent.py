@@ -214,3 +214,10 @@ Common Mistakes to Avoid When You Generate Code:
 20. Only reference varibles after they are defined/assigned.
 21. Some columns in the DataFrame might be of type string or represented as strings, but they are not actually strings, so convert them to the appropriate type before using them in the code.
 """
+
+def common_generation_prompt():
+    """Common generation prompt for code generation tasks"""
+    return """
+Keep in mind the following when generating code:
+1. IMPORTANT: If the rule is not about checking None values, please exclude all rows where any of the relevant columns is None, using df.dropna(subset=relevant_columns), before analysis. None values should not be considered as satisfactions or violations except when explicitly stated in the rule.
+"""

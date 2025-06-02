@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt
+from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt, common_generation_prompt
 import re
 import os
 
@@ -77,6 +77,7 @@ Look at the bottleneck operations identified in the profiling data and address t
 {warnings_text}
 {retrieval_context}
 {format_guidance}
+{common_generation_prompt}
 {common_improvement_recommendations}
 
 Return your answer in the following format:
@@ -99,7 +100,8 @@ OPTIMIZED_CODE:
             "retrieval_context": retrieval_context or "",
             "format_guidance": format_guidance,
             "warnings_text": warnings_text,
-            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df)
+            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df),
+            "common_generation_prompt": common_generation_prompt()
         })
         
         return {

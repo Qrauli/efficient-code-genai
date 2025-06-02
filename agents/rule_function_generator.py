@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt
+from .base_agent import BaseAgent, common_improvement_recommendations, common_mistakes_prompt, common_generation_prompt
 import pandas as pd
 import numpy as np
 import sys
@@ -118,10 +118,11 @@ IMPORTANT:
 - Do not assume that the DataFrame sample is exhaustive. Your function should work with any DataFrame that has the same structure.
 - In the generated code, please delete unused intermediate variables to free memory before returning the results. Use `del` to delete variables and `gc.collect()` to free memory.
 - In the generated code, you should first limit the input DataFrame to the columns used, eliminating unused columns, and use this simplified DataFrame for the remaining operations.
-- If the rule is not about checking None values, please exclude all rows where any of the relevant columns is None, using df.dropna(subset=relevant_columns), before analysis.
 - Be careful when you write the code of generating the inner dictionaries in the violations, do not replace the existing entries already contained in the inner dictionary. 
 - Ensure that each key used in the dictionaries for satisfactions or violations of group validation rules, including keys in both outer and inner dictionaries, always includes the column name when a column value is part of the key. For example, valid keys can be ("A", 100) or (("A", 100), ("B", 200)), but not (100) or (100, 200).
 - Make sure that if the rule is unconditional, the support is 1.0 and that every row in the DataFrame is either a satisfaction or a violation.
+
+{common_generation_prompt}
 
 {common_improvement_recommendations}
 
@@ -143,7 +144,8 @@ IMPORTANT:
             "function_name": function_name,
             "task_description": task_description,
             "common_mistakes_prompt": common_mistakes_prompt(),
-            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df)
+            "common_improvement_recommendations": common_improvement_recommendations(is_multi_dataframe=is_multi_df),
+            "common_generation_prompt": common_generation_prompt()
         })
         
         return {
