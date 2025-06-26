@@ -99,7 +99,7 @@ git clone https://github.com/yourusername/efficient-code-genai.git
 cd efficient-code-genai
 
 # Install dependencies
-pip install -r [requirements.txt](http://_vscodecontentref_/1)
+pip install -r requirements.txt
 
 # Create a .env file with your API keys
 echo "LLM_API_KEY=your_api_key_here" > .env
@@ -118,9 +118,7 @@ orchestrator = RuleOrchestrator(config)
 # Process a rule
 result = orchestrator.process_rule(
     rule_description="If values in column A are greater than 10, then values in column B must be less than 5",
-    dataframe=your_dataframe,
-    sample_size=1000,  # Optional: use sample for development
-    use_profiling=True  # Optional: enable performance profiling
+    dataframe=your_dataframe
 )
 
 # The generated function can be used directly
