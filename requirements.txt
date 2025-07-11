@@ -19,3 +19,4 @@ googlesearch-python
 beautifulsoup4
 langchain-chroma
 langchain-google-vertexai>=2.0.24
+faker
