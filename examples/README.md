@@ -136,7 +136,7 @@ Azure requires more configuration details.
 ```env
 AZURE_OPENAI_API_KEY="..."
 AZURE_OPENAI_ENDPOINT="https://<your-resource-name>.openai.azure.com/"
-OPENAI_API_VERSION="2024-02-01" # Use the API version for your deployment
+API_VERSION="2024-12-01-preview" # Use the API version for your deployment
 AZURE_OPENAI_CHAT_DEPLOYMENT_NAME="<your-deployment-name>" # The name of your model deployment
 ```
 
@@ -153,7 +153,7 @@ import os
 # Replace the ChatVertexAI block with this:
 self.llm = AzureChatOpenAI(
     azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"),
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
+    api_version=os.getenv("OPENAI_API_VERSION"),
     temperature=config.AGENT_TEMPERATURE,
     # The AzureChatOpenAI client automatically reads the endpoint and key 
     # from the standard environment variables.
