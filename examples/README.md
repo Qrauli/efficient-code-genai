@@ -106,7 +106,7 @@ Below are drop-in replacement examples for each provider.
 
 **1. Update your `.env` file:**
 ```env
-OPENAI_API_KEY="sk-..."
+LLM_API_KEY="sk-..."
 LLM_MODEL="gpt-4o" # or another model like "gpt-3.5-turbo"
 ```
 
