@@ -153,7 +153,7 @@ import os
 # Replace the ChatVertexAI block with this:
 self.llm = AzureChatOpenAI(
     azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"),
-    api_version=os.getenv("OPENAI_API_VERSION"),
+    api_version=os.getenv("API_VERSION"),
     temperature=config.AGENT_TEMPERATURE,
     # The AzureChatOpenAI client automatically reads the endpoint and key 
     # from the standard environment variables.
