@@ -91,13 +91,14 @@ For each processed KB file (e.g., `my_rule.json`), the script will create a dedi
 
 ## 6. Switching LLM Providers
 
-The project is configured to use `ChatVertexAI` by default. To switch to another provider like `ChatOpenAI` or `AzureChatOpenAI`, you need to replace the LLM instantiation in **three key places**.
+The project is configured to use `ChatVertexAI` by default. To switch to another provider like `ChatOpenAI` or `AzureChatOpenAI`, you need to replace the LLM instantiation in **four key places**.
 
 ### Files to Modify:
 1.  `base_agent.py` (in the `BaseAgent` class `__init__`)
-2.  `demonstration_generator.py` (in the `DemonstrationGenerator` class `__init__`)
+2.  `demonstration_generator.py` (in the `DemonstrationGenerator` class `__init__` and in `run_single_prompt_generation` function)
 3.  `single_prompt_generation.py` (in the `run_single_prompt_generation` function)
 
+Be aware that the different files use different models and configurations, so you may need to adjust the code slightly based on the provider's requirements. The base agent uses the `gemini-2.5-flash` (weaker model) model by default, while the other files use `gemini-2.5-pro` (stronger model).
 Below are drop-in replacement examples for each provider.
 
 ---
@@ -111,7 +112,7 @@ LLM_MODEL="gpt-4o" # or another model like "gpt-3.5-turbo"
 ```
 
 **2. Modify the code:**
-Replace the `self.llm = ChatVertexAI(...)` block in all three specified locations with the following:
+Replace the `self.llm = ChatVertexAI(...)` block in all four specified locations with the following:
 
 ```python
 # Add this import at the top of the file
@@ -121,7 +122,7 @@ from langchain_openai import ChatOpenAI
 
 # Replace the ChatVertexAI block with this:
 self.llm = ChatOpenAI(
-    model=config.LLM_MODEL,           # Reads from .env
+    model=config.LLM_MODEL,           # or directly use "gpt-4o" or "gpt-3.5-turbo"
     temperature=config.AGENT_TEMPERATURE,
     api_key=config.LLM_API_KEY,         # Reads from .env
 )
